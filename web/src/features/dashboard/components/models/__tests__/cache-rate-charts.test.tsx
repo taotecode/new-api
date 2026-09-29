@@ -1,0 +1,143 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+
+import { api } from '@/lib/api'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
+import { useSystemConfigStore } from '@/stores/system-config-store'
+
+import { CacheRateCharts } from '../cache-rate-charts'
+
+vi.mock('@visactor/react-vchart', () => ({
+  VChart: () => <div data-testid='vchart-mock' />,
+}))
+vi.mock('@visactor/vchart', () => ({
+  ThemeManager: { setCurrentTheme: vi.fn() },
+}))
+
+const modelData = [
+  {
+    model_name: 'gpt-test',
+    created_at: 1767225600,
+    count: 1,
+    quota: 10,
+    token_used: 100,
+    prompt_tokens: 100,
+    cache_tokens: 60,
+    cache_creation_tokens: 5,
+  },
+]
+
+function renderCharts(props: {
+  data?: typeof modelData
+  loading?: boolean
+} = {}) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <CacheRateCharts
+        filters={{ time_granularity: 'hour' }}
+        data={props.data ?? modelData}
+        loading={props.loading}
+        timeGranularity='hour'
+      />
+    </QueryClientProvider>
+  )
+  return queryClient
+}
+
+describe('cache rate charts', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    useAuthStore.setState(useAuthStore.getInitialState(), true)
+    useSystemConfigStore.setState(useSystemConfigStore.getInitialState(), true)
+    localStorage.clear()
+  })
+
+  test('renders the panel with metric toggles and the model dimension for regular users', async () => {
+    renderCharts()
+    expect(screen.getByText('Cache Rate Analytics')).toBeVisible()
+    expect(screen.getByRole('tab', { name: 'By model' })).toBeVisible()
+    expect(
+      screen.queryByRole('tab', { name: 'By channel' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('tab', { name: 'Cache Read Rate' })
+    ).toBeVisible()
+    expect(
+      screen.getByRole('tab', { name: 'Cache Creation Rate' })
+    ).toBeVisible()
+    await waitFor(() => {
+      expect(screen.getByTestId('vchart-mock')).toBeInTheDocument()
+    })
+  })
+
+  test('shows the channel dimension only for admins and loads channel data on switch', async () => {
+    const user = userEvent.setup()
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 1, username: 'tester', role: ROLE.ADMIN })
+    const get = vi
+      .spyOn(api, 'get')
+      .mockResolvedValue({
+        data: {
+          success: true,
+          data: [
+            {
+              channel_id: 7,
+              channel_name: 'primary',
+              created_at: 1767225600,
+              prompt_tokens: 100,
+              cache_tokens: 40,
+              cache_creation_tokens: 0,
+            },
+          ],
+        },
+      } as never)
+    renderCharts()
+
+    const channelTab = screen.getByRole('tab', { name: 'By channel' })
+    expect(channelTab).toBeVisible()
+    await user.click(channelTab)
+
+    await waitFor(() => {
+      expect(get).toHaveBeenCalledWith(
+        '/api/data/channel',
+        expect.objectContaining({
+          params: expect.objectContaining({}),
+        })
+      )
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('vchart-mock')).toBeInTheDocument()
+    })
+  })
+
+  test('renders the empty state when no rows carry prompt tokens', () => {
+    renderCharts({ data: [] })
+    expect(screen.getByText('No cache data available')).toBeVisible()
+    expect(screen.queryByTestId('vchart-mock')).not.toBeInTheDocument()
+  })
+})
