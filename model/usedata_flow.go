@@ -129,9 +129,10 @@ func fillFlowTokenNames(rows []*FlowQuotaData) error {
 	return nil
 }
 
-// lookupChannelNames resolves channel names by ID, preferring the memory
-// cache and falling back to a bulk DB query. Shared by the flow view and the
-// channel-level dashboard aggregation.
+// lookupChannelNames resolves channel names by ID: from the per-channel
+// memory cache when enabled (a miss leaves the id unnamed, so callers fall
+// back to their channel-<id> label), otherwise through one bulk DB query.
+// Shared by the flow view and the channel-level dashboard aggregation.
 func lookupChannelNames(channelIDs []int) (map[int]string, error) {
 	channelNameByID := make(map[int]string, len(channelIDs))
 	if common.MemoryCacheEnabled {

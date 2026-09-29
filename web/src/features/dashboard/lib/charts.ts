@@ -744,6 +744,12 @@ export function processCacheRateChartData(
     string,
     Map<string, { prompt: number; cacheRead: number; cacheWrite: number }>
   >()
+  // All-series totals per time bucket (not limited to the top-10 series), so
+  // the tooltip "Total" row matches the stat cards' whole-range rate.
+  const timeTotalsMap = new Map<
+    string,
+    { prompt: number; cacheRead: number; cacheWrite: number }
+  >()
   const seriesPromptTotals = new Map<string, number>()
   const allTimePoints = new Set<string>()
   let lastTimestamp = 0
@@ -759,6 +765,17 @@ export function processCacheRateChartData(
     const cacheRead = Number(row.cache_tokens) || 0
     const cacheWrite = Number(row.cache_creation_tokens) || 0
     seriesPromptTotals.set(series, (seriesPromptTotals.get(series) || 0) + prompt)
+
+    const timeTotals = timeTotalsMap.get(timeKey) || {
+      prompt: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    }
+    timeTotalsMap.set(timeKey, {
+      prompt: timeTotals.prompt + prompt,
+      cacheRead: timeTotals.cacheRead + cacheRead,
+      cacheWrite: timeTotals.cacheWrite + cacheWrite,
+    })
 
     let seriesMap = timeSeriesMap.get(timeKey)
     if (!seriesMap) {
@@ -805,17 +822,13 @@ export function processCacheRateChartData(
   }> = []
   chartTimes.forEach((time) => {
     const seriesMap = timeSeriesMap.get(time)
-    let timePrompt = 0
+    const totals = timeTotalsMap.get(time)
+    const timePrompt = totals?.prompt ?? 0
     let timeCache = 0
-    topSeries.forEach((series) => {
-      const agg = seriesMap?.get(series)
-      const prompt = Number(agg?.prompt) || 0
-      timePrompt += prompt
-      if (agg) {
-        timeCache +=
-          options.metric === 'read' ? agg.cacheRead : agg.cacheWrite
-      }
-    })
+    if (totals) {
+      timeCache =
+        options.metric === 'read' ? totals.cacheRead : totals.cacheWrite
+    }
     topSeries.forEach((series) => {
       const agg = seriesMap?.get(series)
       const prompt = Number(agg?.prompt) || 0
@@ -834,7 +847,7 @@ export function processCacheRateChartData(
   })
   if (values.length === 0) return emptySpec
 
-  const colorDomain = [...[...topSeries].sort()]
+  const colorDomain = [...topSeries].sort()
   const colorRange = getDashboardChartColors(colorDomain.length)
 
   return {

@@ -126,4 +126,27 @@ describe('processCacheRateChartData', () => {
     expect(spec.data[0].values).toEqual([])
     expect(spec.title?.subtext).toBe('No data available')
   })
+
+  it('carries all-series totals in the tooltip fields even beyond the top series', () => {
+    // 11 prompt-bearing series in one bucket: s10 falls outside the top-10
+    // series but its tokens must still count in the per-time totals the
+    // tooltip "Total" row divides, matching the stat cards' whole-range rate.
+    const rows: CacheRateChartRow[] = []
+    for (let i = 0; i < 11; i++) {
+      rows.push(row(`s${i}`, base, 100 - i * 8, 10, 0))
+    }
+    const spec = processCacheRateChartData(rows, {
+      metric: 'read',
+      timeGranularity: 'hour',
+    })
+    const values = spec.data[0].values as Array<{
+      Series: string
+      TimePrompt: number
+      TimeCache: number
+    }>
+    const s0 = values.find((v) => v.Series === 's0')
+    const totalPrompt = 11 * 100 - 8 * 55 // 660, includes the dropped s10
+    expect(s0?.TimePrompt).toBe(totalPrompt)
+    expect(s0?.TimeCache).toBe(110)
+  })
 })

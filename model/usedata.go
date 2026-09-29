@@ -258,7 +258,7 @@ func GetQuotaDataGroupByChannel(startTime int64, endTime int64) ([]*ChannelQuota
 		return nil, err
 	}
 	if err := fillChannelQuotaDataNames(rows); err != nil {
-		return rows, err
+		return nil, err
 	}
 	return rows, nil
 }
