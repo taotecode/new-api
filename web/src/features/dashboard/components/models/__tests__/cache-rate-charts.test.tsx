@@ -224,6 +224,50 @@ describe('cache rate charts', () => {
     expect(seriesNames.size).toBe(2)
   })
 
+  test('keeps one channel in a single series across time buckets', async () => {
+    const user = userEvent.setup()
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 1, username: 'tester', role: ROLE.ADMIN })
+    // Two channels share the name 'primary', each with two hourly buckets:
+    // every bucket of channel 7 must stay in the plain 'primary' series
+    // instead of being split into suffixed variants.
+    vi.spyOn(api, 'get').mockResolvedValue({
+      data: {
+        success: true,
+        data: [1, 8]
+          .flatMap((channelId) =>
+            [1767225600, 1767229200].map((createdAt) => ({
+              channel_id: channelId,
+              channel_name: 'primary',
+              created_at: createdAt,
+              prompt_tokens: 100,
+              cache_tokens: 40,
+              cache_creation_tokens: 0,
+            }))
+          ),
+      },
+    } as never)
+    renderCharts()
+
+    await user.click(screen.getByRole('tab', { name: 'By channel' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('vchart-mock')).toBeInTheDocument()
+    })
+    const values = chartSpecs.at(-1)?.data?.[0]?.values ?? []
+    const bucketsBySeries = new Map<string, number>()
+    for (const value of values) {
+      bucketsBySeries.set(
+        value.Series,
+        (bucketsBySeries.get(value.Series) ?? 0) + 1
+      )
+    }
+    expect(bucketsBySeries.get('primary')).toBe(2)
+    expect(bucketsBySeries.get('primary (#8)')).toBe(2)
+    expect(bucketsBySeries.size).toBe(2)
+  })
+
   test('renders an error state instead of empty data when the channel request fails', async () => {
     const user = userEvent.setup()
     useAuthStore

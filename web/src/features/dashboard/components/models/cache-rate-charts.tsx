@@ -127,16 +127,23 @@ export function CacheRateCharts(props: CacheRateChartsProps) {
 
   const rows: CacheRateChartRow[] = useMemo(() => {
     if (dimension === 'channel') {
-      // Two channels can share the same display name; keep them as distinct
-      // chart series by suffixing the channel id only for repeat names.
-      const seenNames = new Map<string, number>()
+      // Two channels can share one display name; keep them distinct by
+      // suffixing the channel id, but only for channel ids that are not the
+      // name's first owner, so a channel's own rows across time buckets
+      // always stay in one series.
+      const nameFirstChannel = new Map<string, number>()
       return (channelQuery.data ?? []).map((item) => {
         const name = item.channel_name || `channel-${item.channel_id}`
-        const seen = seenNames.get(name) ?? 0
-        seenNames.set(name, seen + 1)
+        const firstChannel = nameFirstChannel.get(name)
+        if (firstChannel === undefined) {
+          nameFirstChannel.set(name, item.channel_id)
+        }
+        const duplicateOfOtherChannel =
+          firstChannel !== undefined && firstChannel !== item.channel_id
         return {
-          series:
-            seen === 0 ? name : `${name} (#${item.channel_id})`,
+          series: duplicateOfOtherChannel
+            ? `${name} (#${item.channel_id})`
+            : name,
           created_at: Number(item.created_at) || 0,
           prompt_tokens: Number(item.prompt_tokens) || 0,
           cache_tokens: Number(item.cache_tokens) || 0,
