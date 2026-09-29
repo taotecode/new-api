@@ -58,24 +58,3 @@ export function calculateDashboardStats(data: QuotaDataItem[]) {
     }
   )
 }
-
-/**
- * Cache read/creation share of input tokens over an aggregation range,
- * clamped to [0, 1]; null when there is no input to divide by.
- */
-export function calculateCacheRates(data: QuotaDataItem[]): {
-  readRate: number | null
-  creationRate: number | null
-} {
-  const stats = calculateDashboardStats(data)
-  if (stats.totalPromptTokens <= 0) {
-    return { readRate: null, creationRate: null }
-  }
-  return {
-    readRate: Math.min(stats.totalCacheTokens / stats.totalPromptTokens, 1),
-    creationRate: Math.min(
-      stats.totalCacheCreationTokens / stats.totalPromptTokens,
-      1
-    ),
-  }
-}
