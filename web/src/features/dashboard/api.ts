@@ -86,9 +86,12 @@ export async function getFlowQuotaDates(
 }
 
 // Admin-only channel-level hourly aggregation, used by the cache rate chart.
+// The optional username mirrors the dashboard's user filter so the channel
+// dimension stays consistent with the model dimension's data scope.
 export async function getChannelQuotaDates(params: {
   start_timestamp: number
   end_timestamp: number
+  username?: string
 }) {
   const res = await api.get<{
     success: boolean

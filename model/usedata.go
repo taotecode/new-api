@@ -247,12 +247,15 @@ func fillChannelQuotaDataNames(rows []*ChannelQuotaData) error {
 	return nil
 }
 
-func GetQuotaDataGroupByChannel(startTime int64, endTime int64) ([]*ChannelQuotaData, error) {
+func GetQuotaDataGroupByChannel(startTime int64, endTime int64, username string) ([]*ChannelQuotaData, error) {
 	rows := make([]*ChannelQuotaData, 0)
-	err := DB.Table("quota_data").
+	query := DB.Table("quota_data").
 		Select("channel_id, created_at, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used, sum(prompt_tokens) as prompt_tokens, sum(cache_tokens) as cache_tokens, sum(cache_creation_tokens) as cache_creation_tokens").
-		Where("created_at >= ? and created_at <= ?", startTime, endTime).
-		Group("channel_id, created_at").
+		Where("created_at >= ? and created_at <= ?", startTime, endTime)
+	if username != "" {
+		query = query.Where("username = ?", username)
+	}
+	err := query.Group("channel_id, created_at").
 		Find(&rows).Error
 	if err != nil {
 		return nil, err

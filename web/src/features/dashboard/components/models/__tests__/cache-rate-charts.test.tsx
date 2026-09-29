@@ -28,8 +28,17 @@ import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { CacheRateCharts } from '../cache-rate-charts'
 
+type CapturedChartSpec = {
+  data?: Array<{ values?: Array<{ Series: string }> }>
+}
+
+const chartSpecs = vi.hoisted((): CapturedChartSpec[] => [])
+
 vi.mock('@visactor/react-vchart', () => ({
-  VChart: () => <div data-testid='vchart-mock' />,
+  VChart: (vchartProps: { spec: CapturedChartSpec }) => {
+    chartSpecs.push(vchartProps.spec)
+    return <div data-testid='vchart-mock' />
+  },
 }))
 vi.mock('@visactor/vchart', () => ({
   ThemeManager: { setCurrentTheme: vi.fn() },
@@ -51,6 +60,7 @@ const modelData = [
 function renderCharts(props: {
   data?: typeof modelData
   loading?: boolean
+  filters?: { username?: string }
 } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -58,7 +68,12 @@ function renderCharts(props: {
   render(
     <QueryClientProvider client={queryClient}>
       <CacheRateCharts
-        filters={{ time_granularity: 'hour' }}
+        filters={{
+          time_granularity: 'hour',
+          ...(props.filters?.username
+            ? { username: props.filters.username }
+            : {}),
+        }}
         data={props.data ?? modelData}
         loading={props.loading}
         timeGranularity='hour'
@@ -71,6 +86,7 @@ function renderCharts(props: {
 describe('cache rate charts', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+    chartSpecs.length = 0
     useAuthStore.setState(useAuthStore.getInitialState(), true)
     useSystemConfigStore.setState(useSystemConfigStore.getInitialState(), true)
     localStorage.clear()
@@ -139,5 +155,91 @@ describe('cache rate charts', () => {
     renderCharts({ data: [] })
     expect(screen.getByText('No cache data available')).toBeVisible()
     expect(screen.queryByTestId('vchart-mock')).not.toBeInTheDocument()
+  })
+
+  test('passes the dashboard username filter to the channel request', async () => {
+    const user = userEvent.setup()
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 1, username: 'tester', role: ROLE.ADMIN })
+    const get = vi
+      .spyOn(api, 'get')
+      .mockResolvedValue({ data: { success: true, data: [] } } as never)
+    renderCharts({ filters: { username: 'alice' } })
+
+    await user.click(screen.getByRole('tab', { name: 'By channel' }))
+
+    await waitFor(() => {
+      expect(get).toHaveBeenCalledWith(
+        '/api/data/channel',
+        expect.objectContaining({
+          params: expect.objectContaining({ username: 'alice' }),
+        })
+      )
+    })
+  })
+
+  test('keeps same-named channels as distinct chart series', async () => {
+    const user = userEvent.setup()
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 1, username: 'tester', role: ROLE.ADMIN })
+    vi.spyOn(api, 'get').mockResolvedValue({
+      data: {
+        success: true,
+        data: [
+          {
+            channel_id: 7,
+            channel_name: 'primary',
+            created_at: 1767225600,
+            prompt_tokens: 100,
+            cache_tokens: 40,
+            cache_creation_tokens: 0,
+          },
+          {
+            channel_id: 8,
+            channel_name: 'primary',
+            created_at: 1767225600,
+            prompt_tokens: 50,
+            cache_tokens: 10,
+            cache_creation_tokens: 0,
+          },
+        ],
+      },
+    } as never)
+    renderCharts()
+
+    await user.click(screen.getByRole('tab', { name: 'By channel' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('vchart-mock')).toBeInTheDocument()
+    })
+    const seriesNames = new Set(
+      (chartSpecs.at(-1)?.data?.[0]?.values ?? []).map(
+        (value) => value.Series
+      )
+    )
+    expect(seriesNames.has('primary')).toBe(true)
+    expect(seriesNames.has('primary (#8)')).toBe(true)
+    expect(seriesNames.size).toBe(2)
+  })
+
+  test('renders an error state instead of empty data when the channel request fails', async () => {
+    const user = userEvent.setup()
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 1, username: 'tester', role: ROLE.ADMIN })
+    vi.spyOn(api, 'get').mockRejectedValue(new Error('network down'))
+    renderCharts()
+
+    await user.click(screen.getByRole('tab', { name: 'By channel' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to load cache analytics')).toBeVisible()
+    })
+    expect(screen.queryByTestId('vchart-mock')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('No cache data available')
+    ).not.toBeInTheDocument()
   })
 })

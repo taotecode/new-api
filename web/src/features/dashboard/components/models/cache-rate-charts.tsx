@@ -99,16 +99,19 @@ export function CacheRateCharts(props: CacheRateChartsProps) {
     [props.filters]
   )
 
+  const channelUsername = props.filters?.username
   const channelQuery = useQuery({
     queryKey: [
       'dashboard-channel-quota-data',
       timeRange.start_timestamp,
       timeRange.end_timestamp,
+      channelUsername,
     ],
     queryFn: async () => {
       const response = await getChannelQuotaDates({
         start_timestamp: timeRange.start_timestamp,
         end_timestamp: timeRange.end_timestamp,
+        username: channelUsername,
       })
       if (!response.success) {
         throw createServerError(
@@ -124,13 +127,22 @@ export function CacheRateCharts(props: CacheRateChartsProps) {
 
   const rows: CacheRateChartRow[] = useMemo(() => {
     if (dimension === 'channel') {
-      return (channelQuery.data ?? []).map((item) => ({
-        series: item.channel_name || `channel-${item.channel_id}`,
-        created_at: Number(item.created_at) || 0,
-        prompt_tokens: Number(item.prompt_tokens) || 0,
-        cache_tokens: Number(item.cache_tokens) || 0,
-        cache_creation_tokens: Number(item.cache_creation_tokens) || 0,
-      }))
+      // Two channels can share the same display name; keep them as distinct
+      // chart series by suffixing the channel id only for repeat names.
+      const seenNames = new Map<string, number>()
+      return (channelQuery.data ?? []).map((item) => {
+        const name = item.channel_name || `channel-${item.channel_id}`
+        const seen = seenNames.get(name) ?? 0
+        seenNames.set(name, seen + 1)
+        return {
+          series:
+            seen === 0 ? name : `${name} (#${item.channel_id})`,
+          created_at: Number(item.created_at) || 0,
+          prompt_tokens: Number(item.prompt_tokens) || 0,
+          cache_tokens: Number(item.cache_tokens) || 0,
+          cache_creation_tokens: Number(item.cache_creation_tokens) || 0,
+        }
+      })
     }
     return props.data.map((item) => ({
       series: item.model_name || 'Unknown',
@@ -157,10 +169,17 @@ export function CacheRateCharts(props: CacheRateChartsProps) {
   )
 
   const hasRatePoints = !loading && rows.some((row) => row.prompt_tokens > 0)
+  const channelError = dimension === 'channel' && channelQuery.isError
+  let chartState = 'ready'
+  if (loading) {
+    chartState = 'loading'
+  } else if (channelError) {
+    chartState = 'error'
+  }
   const chartKey = [
     dimension,
     metric,
-    loading ? 'loading' : 'ready',
+    chartState,
     rows.length,
     resolvedTheme,
   ].join('-')
@@ -168,6 +187,17 @@ export function CacheRateCharts(props: CacheRateChartsProps) {
   let chartBody: ReactNode = null
   if (loading) {
     chartBody = <Skeleton className='h-full w-full' />
+  } else if (channelError) {
+    chartBody = (
+      <Empty className='h-full border-0 py-12'>
+        <EmptyHeader>
+          <EmptyMedia variant='icon'>
+            <Database />
+          </EmptyMedia>
+          <EmptyTitle>{t('Failed to load cache analytics')}</EmptyTitle>
+        </EmptyHeader>
+      </Empty>
+    )
   } else if (!hasRatePoints) {
     chartBody = (
       <Empty className='h-full border-0 py-12'>

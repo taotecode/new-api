@@ -3340,7 +3340,7 @@
     "Max output": "Đầu ra tối đa",
     "Max quota consumed per calendar day (server local time). Set to 0 for unlimited": "Hạn mức tối đa tiêu thụ mỗi ngày lịch (giờ máy chủ). 0 = không giới hạn",
     "Max quota consumed per calendar month (server local time). Set to 0 for unlimited": "Hạn mức tối đa tiêu thụ mỗi tháng lịch (giờ máy chủ). 0 = không giới hạn",
-    "Max Requests (incl. failures)": "Maximum number of requests (including errors)",
+    "Max Requests (incl. failures)": "Số yêu cầu tối đa (bao gồm cả lỗi)",
     "Max Requests (including failures)": "Số yêu cầu tối đa (bao gồm cả các lỗi)",
     "Max requests per minute dispatched to this channel. Set to 0 for unlimited": "Số yêu cầu tối đa mỗi phút gửi đến kênh này. 0 = không giới hạn",
     "Max requests per period": "Yêu cầu tối đa mỗi khoảng thời gian",

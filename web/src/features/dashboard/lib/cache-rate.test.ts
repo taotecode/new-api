@@ -85,19 +85,20 @@ describe('processCacheRateChartData', () => {
   it('keeps only the top series ranked by prompt volume', () => {
     const rows: CacheRateChartRow[] = []
     for (let i = 0; i < 11; i++) {
-      rows.push(row(`s${i}`, base, 100 - i * 10, 10, 0))
+      rows.push(row(`s${i}`, base, 100 - i * 8, 10, 0))
     }
     const spec = processCacheRateChartData(rows, {
       metric: 'read',
       timeGranularity: 'hour',
     })
     const values = spec.data[0].values as Array<{ Series: string }>
-    // s10 has the smallest prompt volume (0) and also has no computable
-    // rate; every prompt-bearing series stays within the top-10 limit.
+    // All 11 series have prompt tokens and computable rates, so only the
+    // prompt-volume ranking decides: s0–s9 stay within the top-10 limit and
+    // s10 (smallest prompt volume) is the only series cut off.
     const series = new Set(values.map((v) => v.Series))
-    expect(series.has('s1')).toBe(true)
+    expect(series.size).toBe(10)
+    expect(series.has('s9')).toBe(true)
     expect(series.has('s10')).toBe(false)
-    expect(values.length).toBeLessThanOrEqual(10)
   })
 
   it('switches the numerator by metric', () => {
