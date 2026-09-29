@@ -119,6 +119,11 @@ func TestGetQuotaDataGroupByChannelFiltersByUsername(t *testing.T) {
 	for i := range seed {
 		require.NoError(t, DB.Create(&seed[i]).Error)
 	}
+	// Remove exactly this test's rows so repeated runs (go test -count=2)
+	// never observe leftovers from a previous run's assertions.
+	t.Cleanup(func() {
+		DB.Where("channel_id = ? AND created_at = ?", channelID, createdAt).Delete(&QuotaData{})
+	})
 
 	findRow := func(rows []*ChannelQuotaData) *ChannelQuotaData {
 		for _, row := range rows {
