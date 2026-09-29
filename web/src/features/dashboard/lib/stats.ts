@@ -27,7 +27,7 @@ export function safeDivide(
   precision: number = 3
 ): number {
   const result = value / divisor
-  if (isNaN(result) || !isFinite(result)) return 0
+  if (Number.isNaN(result) || !Number.isFinite(result)) return 0
   const factor = Math.pow(10, precision)
   return Math.round(result * factor) / factor
 }
@@ -41,7 +41,41 @@ export function calculateDashboardStats(data: QuotaDataItem[]) {
       totalQuota: acc.totalQuota + (Number(item.quota) || 0),
       totalCount: acc.totalCount + (Number(item.count) || 0),
       totalTokens: acc.totalTokens + (Number(item.token_used) || 0),
+      totalPromptTokens:
+        acc.totalPromptTokens + (Number(item.prompt_tokens) || 0),
+      totalCacheTokens: acc.totalCacheTokens + (Number(item.cache_tokens) || 0),
+      totalCacheCreationTokens:
+        acc.totalCacheCreationTokens +
+        (Number(item.cache_creation_tokens) || 0),
     }),
-    { totalQuota: 0, totalCount: 0, totalTokens: 0 }
+    {
+      totalQuota: 0,
+      totalCount: 0,
+      totalTokens: 0,
+      totalPromptTokens: 0,
+      totalCacheTokens: 0,
+      totalCacheCreationTokens: 0,
+    }
   )
+}
+
+/**
+ * Cache read/creation share of input tokens over an aggregation range,
+ * clamped to [0, 1]; null when there is no input to divide by.
+ */
+export function calculateCacheRates(data: QuotaDataItem[]): {
+  readRate: number | null
+  creationRate: number | null
+} {
+  const stats = calculateDashboardStats(data)
+  if (stats.totalPromptTokens <= 0) {
+    return { readRate: null, creationRate: null }
+  }
+  return {
+    readRate: Math.min(stats.totalCacheTokens / stats.totalPromptTokens, 1),
+    creationRate: Math.min(
+      stats.totalCacheCreationTokens / stats.totalPromptTokens,
+      1
+    ),
+  }
 }

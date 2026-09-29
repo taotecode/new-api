@@ -129,6 +129,32 @@ func fillFlowTokenNames(rows []*FlowQuotaData) error {
 	return nil
 }
 
+// lookupChannelNames resolves channel names by ID, preferring the memory
+// cache and falling back to a bulk DB query. Shared by the flow view and the
+// channel-level dashboard aggregation.
+func lookupChannelNames(channelIDs []int) (map[int]string, error) {
+	channelNameByID := make(map[int]string, len(channelIDs))
+	if common.MemoryCacheEnabled {
+		for _, channelID := range channelIDs {
+			if channel, err := CacheGetChannel(channelID); err == nil {
+				channelNameByID[channelID] = channel.Name
+			}
+		}
+		return channelNameByID, nil
+	}
+	var channels []struct {
+		Id   int    `gorm:"column:id"`
+		Name string `gorm:"column:name"`
+	}
+	if err := DB.Table("channels").Select("id, name").Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
+		return nil, err
+	}
+	for _, channel := range channels {
+		channelNameByID[channel.Id] = channel.Name
+	}
+	return channelNameByID, nil
+}
+
 func fillFlowChannelNames(rows []*FlowQuotaData) error {
 	channelIDSet := make(map[int]struct{})
 	channelIDs := make([]int, 0)
@@ -146,24 +172,9 @@ func fillFlowChannelNames(rows []*FlowQuotaData) error {
 		return nil
 	}
 
-	channelNameByID := make(map[int]string, len(channelIDs))
-	if common.MemoryCacheEnabled {
-		for _, channelID := range channelIDs {
-			if channel, err := CacheGetChannel(channelID); err == nil {
-				channelNameByID[channelID] = channel.Name
-			}
-		}
-	} else {
-		var channels []struct {
-			Id   int    `gorm:"column:id"`
-			Name string `gorm:"column:name"`
-		}
-		if err := DB.Table("channels").Select("id, name").Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
-			return err
-		}
-		for _, channel := range channels {
-			channelNameByID[channel.Id] = channel.Name
-		}
+	channelNameByID, err := lookupChannelNames(channelIDs)
+	if err != nil {
+		return err
 	}
 	for _, row := range rows {
 		if name := channelNameByID[row.ChannelID]; name != "" {

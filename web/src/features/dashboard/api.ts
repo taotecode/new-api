@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 
 import type {
+  ChannelQuotaDataItem,
   FlowQuotaDataItem,
   QuotaDataItem,
   UptimeGroupResult,
@@ -81,6 +82,19 @@ export async function getFlowQuotaDates(
     data?: FlowQuotaDataItem[]
     message?: string
   }>(endpoint, { params })
+  return res.data
+}
+
+// Admin-only channel-level hourly aggregation, used by the cache rate chart.
+export async function getChannelQuotaDates(params: {
+  start_timestamp: number
+  end_timestamp: number
+}) {
+  const res = await api.get<{
+    success: boolean
+    data?: ChannelQuotaDataItem[]
+    message?: string
+  }>('/api/data/channel', { params })
   return res.data
 }
 
