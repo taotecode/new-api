@@ -298,4 +298,41 @@ describe('API keys mutate drawer Auto group integration', () => {
     expect(createdPayloads[0]?.name).toBe('limited')
     expect(createdPayloads[0]?.rpm_limit).toBe(30)
   })
+
+  test('rejects a fractional per-key RPM limit instead of truncating it', async () => {
+    const createdPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures(createdPayloads)
+    await renderCreateDrawer()
+
+    const rpmInput = getControlByLabel(
+      'Requests per minute (RPM)'
+    ) as HTMLInputElement
+    changeInput(rpmInput, '1.5')
+    changeInput(getControlByLabel('Name'), 'fractional')
+    fireEvent.click(findButton('Save changes', true))
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('RPM limit must be a whole number')
+      ).toBeInTheDocument()
+    })
+    expect(createdPayloads).toHaveLength(0)
+  })
+
+  test('keeps scientific notation intact in the per-key RPM limit', async () => {
+    const createdPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures(createdPayloads)
+    await renderCreateDrawer()
+
+    const rpmInput = getControlByLabel(
+      'Requests per minute (RPM)'
+    ) as HTMLInputElement
+    changeInput(rpmInput, '1e3')
+    changeInput(getControlByLabel('Name'), 'scientific')
+    fireEvent.click(findButton('Save changes', true))
+    await waitFor(() => expect(createdPayloads).toHaveLength(1))
+
+    expect(createdPayloads[0]?.name).toBe('scientific')
+    expect(createdPayloads[0]?.rpm_limit).toBe(1000)
+  })
 })
