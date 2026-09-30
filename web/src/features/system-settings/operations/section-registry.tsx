@@ -103,6 +103,12 @@ const OPERATIONS_SECTIONS = [
       <LogSettingsSection
         defaultValues={{
           LogConsumeEnabled: Boolean(settings.LogConsumeEnabled),
+          LogRecordClientInfoEnabled: Boolean(
+            settings.LogRecordClientInfoEnabled
+          ),
+          LogClientInfoUserVisibleEnabled: Boolean(
+            settings.LogClientInfoUserVisibleEnabled
+          ),
         }}
       />
     ),

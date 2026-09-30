@@ -85,6 +85,8 @@ import type { LogCleanupTask } from '../types'
 
 const logSettingsSchema = z.object({
   LogConsumeEnabled: z.boolean(),
+  LogRecordClientInfoEnabled: z.boolean(),
+  LogClientInfoUserVisibleEnabled: z.boolean(),
 })
 
 type LogSettingsFormValues = z.infer<typeof logSettingsSchema>
@@ -191,14 +193,27 @@ export function LogSettingsSection({
   useEffect(() => {
     const next: LogSettingsFormValues = {
       LogConsumeEnabled: defaultValues.LogConsumeEnabled,
+      LogRecordClientInfoEnabled: defaultValues.LogRecordClientInfoEnabled,
+      LogClientInfoUserVisibleEnabled:
+        defaultValues.LogClientInfoUserVisibleEnabled,
     }
     const saved = lastSavedRef.current
-    if (next.LogConsumeEnabled === saved.LogConsumeEnabled) {
+    if (
+      next.LogConsumeEnabled === saved.LogConsumeEnabled &&
+      next.LogRecordClientInfoEnabled === saved.LogRecordClientInfoEnabled &&
+      next.LogClientInfoUserVisibleEnabled ===
+        saved.LogClientInfoUserVisibleEnabled
+    ) {
       return
     }
     lastSavedRef.current = next
     form.reset(next)
-  }, [defaultValues.LogConsumeEnabled, form])
+  }, [
+    defaultValues.LogConsumeEnabled,
+    defaultValues.LogRecordClientInfoEnabled,
+    defaultValues.LogClientInfoUserVisibleEnabled,
+    form,
+  ])
 
   useEffect(() => {
     fetchServerLogInfo()
@@ -388,6 +403,58 @@ export function LogSettingsSection({
                   <FormDescription>
                     {t(
                       'Track per-request consumption to power usage analytics. Keeping this on increases database writes.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+                <FormMessage />
+              </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='LogRecordClientInfoEnabled'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>
+                    {t('Record caller IP and client identifier')}
+                  </FormLabel>
+                  <FormDescription>
+                    {t(
+                      'Store the caller IP address and client identifier (User-Agent) in usage and error logs for security auditing.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+                <FormMessage />
+              </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='LogClientInfoUserVisibleEnabled'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>
+                    {t('Allow users to view their own IP and client identifier')}
+                  </FormLabel>
+                  <FormDescription>
+                    {t(
+                      'When enabled, users can see the caller IP and client identifier recorded on their own logs. Admins can always view this information.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>
