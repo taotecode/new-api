@@ -187,3 +187,33 @@ func TestInvitationCodeLifecycleManagement(t *testing.T) {
 	_, err = GetInvitationCodeById(code.Id)
 	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
 }
+
+// TestInvitationGateOptionUpdatesRuntimeFlags verifies that the invitation
+// gate flags flip when the option funnel applies the persisted values.
+// Admin saves, startup loads, and periodic syncs all dispatch through
+// updateOptionMap, so a key that never reaches its assignment leaves the
+// gate stuck at its compiled default (regression: InvitationRequired and
+// InvitationAffAllowed sat inside the "Enabled"-suffix guard and were
+// unreachable, making the gate impossible to enable at runtime).
+func TestInvitationGateOptionUpdatesRuntimeFlags(t *testing.T) {
+	originalRequired, originalAff := common.InvitationRequired, common.InvitationAffAllowed
+	previousMap := common.OptionMap
+	t.Cleanup(func() {
+		common.InvitationRequired, common.InvitationAffAllowed = originalRequired, originalAff
+		common.OptionMap = previousMap
+	})
+	common.OptionMap = map[string]string{}
+
+	common.InvitationRequired = false
+	require.NoError(t, updateOptionMap("InvitationRequired", "true"))
+	assert.True(t, common.InvitationRequired, "gate flag must flip to true through updateOptionMap")
+	assert.Equal(t, "true", common.OptionMap["InvitationRequired"])
+	require.NoError(t, updateOptionMap("InvitationRequired", "false"))
+	assert.False(t, common.InvitationRequired)
+
+	common.InvitationAffAllowed = false
+	require.NoError(t, updateOptionMap("InvitationAffAllowed", "true"))
+	assert.True(t, common.InvitationAffAllowed, "aff allowance must flip to true through updateOptionMap")
+	require.NoError(t, updateOptionMap("InvitationAffAllowed", "false"))
+	assert.False(t, common.InvitationAffAllowed)
+}
