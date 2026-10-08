@@ -206,15 +206,33 @@ func UpdateInvitationCode(id int, name string, status int, expiredTime int64, st
 		}
 	} else {
 		// A used code can no longer change: its consumption record is part of
-		// the audit trail, including the batch name.
+		// the audit trail, including the batch name. The conditional update
+		// closes the race where a registration consumes the code between the
+		// status check above and this write.
 		if code.Status == common.InvitationCodeStatusUsed {
 			return nil, ErrInvitationCodeUsed
 		}
-		if err := DB.Model(&InvitationCode{}).Where("id = ?", id).Updates(map[string]any{
-			"name":         strings.TrimSpace(name),
-			"expired_time": expiredTime,
-		}).Error; err != nil {
-			return nil, err
+		result := DB.Model(&InvitationCode{}).
+			Where("id = ? AND status IN ?", id, []int{
+				common.InvitationCodeStatusEnabled,
+				common.InvitationCodeStatusDisabled,
+			}).
+			Updates(map[string]any{
+				"name":         strings.TrimSpace(name),
+				"expired_time": expiredTime,
+			})
+		if result.Error != nil {
+			return nil, result.Error
+		}
+		if result.RowsAffected == 0 {
+			latest, latestErr := GetInvitationCodeById(id)
+			if latestErr != nil {
+				return nil, latestErr
+			}
+			if latest.Status == common.InvitationCodeStatusUsed {
+				return nil, ErrInvitationCodeUsed
+			}
+			return nil, errors.New("invitation code status changed concurrently")
 		}
 	}
 	return GetInvitationCodeById(id)
