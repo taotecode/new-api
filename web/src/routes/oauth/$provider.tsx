@@ -226,6 +226,26 @@ function OAuthCallback() {
         }
         const response = await loginExchange.current.request
         if (!active) return
+        const invitationData = response.data?.data as
+          | { invitation_required?: boolean; flow_token?: string }
+          | undefined
+        if (
+          !response.data?.success &&
+          invitationData?.invitation_required &&
+          invitationData.flow_token
+        ) {
+          // New OAuth identity held at the registration gate: finish account
+          // creation by providing a valid invitation code.
+          completedLogin.current = loginKey
+          void navigate({
+            to: '/invitation-complete',
+            search: {
+              flow_token: invitationData.flow_token,
+              provider,
+            },
+          })
+          return
+        }
         if (response.data?.success) {
           completedLogin.current = loginKey
           if (

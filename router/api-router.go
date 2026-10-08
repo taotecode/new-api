@@ -59,6 +59,8 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/oauth/telegram/bind/:flow_token", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.TelegramLegacyAuth)
 		// Standard OAuth providers (GitHub, Discord, OIDC, LinuxDO, Telegram) - unified route
 		apiRouter.GET("/oauth/:provider", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.TryUserAuth(), controller.HandleOAuth)
+		// Completes an OAuth registration paused at the invitation gate.
+		apiRouter.POST("/oauth/invitation/complete", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.CompleteOAuthInvitation)
 		apiRouter.GET("/ratio_config", middleware.CriticalRateLimit(), controller.GetRatioConfig)
 
 		apiRouter.POST("/stripe/webhook", anonymousRequestBodyLimit, controller.StripeWebhook)
@@ -316,6 +318,19 @@ func SetApiRouter(router *gin.Engine) {
 			redemptionRoute.PUT("/", controller.UpdateRedemption)
 			redemptionRoute.DELETE("/invalid", controller.DeleteInvalidRedemption)
 			redemptionRoute.DELETE("/:id", controller.DeleteRedemption)
+		}
+		// Invitation gate codes are root-only: they control who may register.
+		invitationRoute := apiRouter.Group("/invitation")
+		invitationRoute.Use(middleware.RootAuth())
+		{
+			invitationRoute.GET("/", controller.GetAllInvitationCodes)
+			invitationRoute.GET("/search", controller.SearchInvitationCodes)
+			invitationRoute.GET("/:id", controller.GetInvitationCode)
+			invitationRoute.POST("/", controller.AddInvitationCodes)
+			invitationRoute.POST("/batch", controller.DeleteInvitationCodeBatch)
+			invitationRoute.PUT("/", controller.UpdateInvitationCode)
+			invitationRoute.DELETE("/used", controller.DeleteUsedInvitationCodes)
+			invitationRoute.DELETE("/:id", controller.DeleteInvitationCode)
 		}
 		handlePermissionRoute(apiRouter.Group("", middleware.DisableCache(), middleware.AdminAuth()), http.MethodGet, "/audit", authz.AuditRead, controller.GetAuditLogs)
 		apiRouter.GET("/audit/self", middleware.DisableCache(), middleware.UserAuth(), controller.GetAuditLogs)

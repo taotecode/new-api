@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useNavigate } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useForm } from 'react-hook-form'
@@ -95,10 +96,13 @@ export function SignUpForm({
       email: '',
       password: '',
       confirmPassword: '',
+      invitationCode: '',
     },
   })
 
+  const navigate = useNavigate({ from: '/sign-up' })
   const emailValue = form.watch('email')
+  const invitationCodeValue = form.watch('invitationCode') ?? ''
   const emailVerificationRequired = !!status?.email_verification
   const hasUserAgreement = Boolean(status?.user_agreement_enabled)
   const hasPrivacyPolicy = Boolean(status?.privacy_policy_enabled)
@@ -109,6 +113,13 @@ export function SignUpForm({
     true
   const hasWeChatLogin = Boolean(status?.wechat_login)
   const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
+  // Registration gate: show the input whenever the gate is on; the password
+  // entry enforces it server-side, OAuth entries pause after authorization
+  // until a valid code is provided.
+  const invitationMethods = (status?.invitation_methods ?? []) as string[]
+  const showInvitationField = Boolean(status?.invitation_required)
+  const passwordInvitationRequired =
+    showInvitationField && invitationMethods.includes('password')
 
   const wechatQrCodeUrl = useMemo(() => {
     return (
@@ -157,6 +168,11 @@ export function SignUpForm({
       }
     }
 
+    if (passwordInvitationRequired && !data.invitationCode?.trim()) {
+      toast.error(t('Please enter an invitation code'))
+      return
+    }
+
     if (!validateTurnstile()) return
 
     setIsLoading(true)
@@ -167,6 +183,10 @@ export function SignUpForm({
         email: data.email || undefined,
         verification_code: verificationCode || undefined,
         aff_code: getAffiliateCode(),
+        invitation_code:
+          showInvitationField && data.invitationCode?.trim()
+            ? data.invitationCode.trim()
+            : undefined,
         turnstile: turnstileToken,
       })
 
@@ -217,12 +237,31 @@ export function SignUpForm({
 
     setIsWeChatSubmitting(true)
     try {
-      const res = await wechatLoginByCode(wechatCode)
+      const res = await wechatLoginByCode(
+        wechatCode,
+        showInvitationField && invitationCodeValue.trim()
+          ? invitationCodeValue.trim()
+          : undefined
+      )
+      const flowToken = (res.data as { flow_token?: string } | undefined)
+        ?.flow_token
       if (res?.success) {
         handleWeChatDialogChange(false)
         if (await handleLoginResult(res.data)) {
           toast.success(t('Signed in via WeChat'))
         }
+      } else if (
+        (res.data as { invitation_required?: boolean } | undefined)
+          ?.invitation_required &&
+        flowToken
+      ) {
+        // New WeChat identity held at the gate: finish registration with a
+        // valid invitation code.
+        handleWeChatDialogChange(false)
+        void navigate({
+          to: '/invitation-complete',
+          search: { flow_token: flowToken, provider: 'wechat' },
+        })
       } else {
         handleServerError(createServerError(res, t('Login failed')))
       }
@@ -251,6 +290,35 @@ export function SignUpForm({
         className={cn('grid gap-4', className)}
         {...props}
       >
+        {/* Invitation Code Field */}
+        {showInvitationField && (
+          <FormField
+            control={form.control}
+            name='invitationCode'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>
+                  {t('Invitation code')}
+                  {passwordInvitationRequired ? ` (${t('Required')})` : ''}
+                </FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder={t('Enter invitation code')}
+                    autoComplete='off'
+                    {...field}
+                  />
+                </FormControl>
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    'New accounts need a valid invitation code or a referral code. Existing accounts can sign in without it.'
+                  )}
+                </p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+
         {/* Username Field */}
         <FormField
           control={form.control}
@@ -388,6 +456,9 @@ export function SignUpForm({
             disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
             onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
             isWeChatLoading={isWeChatSubmitting}
+            invitationCode={
+              showInvitationField ? invitationCodeValue.trim() : undefined
+            }
             className='pt-2'
           />
         )}

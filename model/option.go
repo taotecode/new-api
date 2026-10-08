@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"maps"
 	"strconv"
 	"strings"
@@ -48,6 +49,9 @@ func InitOptionMap() {
 	common.OptionMap["WeChatAuthEnabled"] = strconv.FormatBool(common.WeChatAuthEnabled)
 	common.OptionMap["TurnstileCheckEnabled"] = strconv.FormatBool(common.TurnstileCheckEnabled)
 	common.OptionMap["RegisterEnabled"] = strconv.FormatBool(common.RegisterEnabled)
+	common.OptionMap["InvitationRequired"] = strconv.FormatBool(common.InvitationRequired)
+	common.OptionMap["InvitationAffAllowed"] = strconv.FormatBool(common.InvitationAffAllowed)
+	common.OptionMap["InvitationMethods"] = strings.Join(common.InvitationMethods, ",")
 	common.OptionMap["AutomaticDisableChannelEnabled"] = strconv.FormatBool(common.AutomaticDisableChannelEnabled)
 	common.OptionMap["AutomaticEnableChannelEnabled"] = strconv.FormatBool(common.AutomaticEnableChannelEnabled)
 	common.OptionMap["LogConsumeEnabled"] = strconv.FormatBool(common.LogConsumeEnabled)
@@ -247,6 +251,11 @@ func validateOptionValue(key string, value string) error {
 	if key == "MaxTokenAutoGroups" {
 		return setting.ValidateMaxTokenAutoGroups(value)
 	}
+	if key == "InvitationMethods" {
+		if _, ok := common.ParseInvitationMethodsOption(value); !ok {
+			return errors.New("unsupported invitation registration method")
+		}
+	}
 	return nil
 }
 
@@ -397,6 +406,10 @@ func updateOptionMap(key string, value string) (err error) {
 			common.TurnstileCheckEnabled = boolValue
 		case "RegisterEnabled":
 			common.RegisterEnabled = boolValue
+		case "InvitationRequired":
+			common.InvitationRequired = boolValue
+		case "InvitationAffAllowed":
+			common.InvitationAffAllowed = boolValue
 		case "EmailDomainRestrictionEnabled":
 			common.EmailDomainRestrictionEnabled = boolValue
 		case "EmailAliasRestrictionEnabled":
@@ -482,6 +495,12 @@ func updateOptionMap(key string, value string) (err error) {
 	switch key {
 	case "EmailDomainWhitelist":
 		common.EmailDomainWhitelist = strings.Split(value, ",")
+	case "InvitationMethods":
+		methods, ok := common.ParseInvitationMethodsOption(value)
+		if !ok {
+			return errors.New("unsupported invitation registration method in " + value)
+		}
+		common.InvitationMethods = methods
 	case "SMTPServer":
 		common.SMTPServer = value
 	case "SMTPPort":

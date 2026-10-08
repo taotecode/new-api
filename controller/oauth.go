@@ -23,19 +23,34 @@ import (
 const oauthAuthFlowTTL = 10 * time.Minute
 
 type oauthStateRequest struct {
-	Provider string          `json:"provider"`
-	Intent   string          `json:"intent"`
-	Aff      string          `json:"aff,omitempty"`
-	Scope    string          `json:"scope,omitempty"`
-	Context  json.RawMessage `json:"context,omitempty"`
+	Provider       string          `json:"provider"`
+	Intent         string          `json:"intent"`
+	Aff            string          `json:"aff,omitempty"`
+	InvitationCode string          `json:"invitation_code,omitempty"`
+	Scope          string          `json:"scope,omitempty"`
+	Context        json.RawMessage `json:"context,omitempty"`
 }
 
 type oauthFlowPayload struct {
-	AffiliateCode   string                         `json:"affiliate_code,omitempty"`
-	Verification    *service.OAuthVerificationFlow `json:"verification,omitempty"`
-	Telegram        *oauth.TelegramOAuthFlow       `json:"telegram,omitempty"`
-	SessionIdentity *service.AuthIdentity          `json:"session_identity,omitempty"`
-	Authorization   *model.AuthFlowAuthorization   `json:"authorization,omitempty"`
+	AffiliateCode       string                         `json:"affiliate_code,omitempty"`
+	InvitationCodeID    int                            `json:"invitation_code_id,omitempty"`
+	InvitationInviterID int                            `json:"invitation_inviter_id,omitempty"`
+	Verification        *service.OAuthVerificationFlow `json:"verification,omitempty"`
+	Telegram            *oauth.TelegramOAuthFlow       `json:"telegram,omitempty"`
+	SessionIdentity     *service.AuthIdentity          `json:"session_identity,omitempty"`
+	Authorization       *model.AuthFlowAuthorization   `json:"authorization,omitempty"`
+}
+
+// invitationPendingPayload carries a confirmed OAuth identity through the
+// invitation completion step. The OAuth tokens are never stored; only the
+// provider identity and profile fields needed to create the account later.
+type invitationPendingPayload struct {
+	Provider       string `json:"provider"`
+	ProviderUserId string `json:"provider_user_id"`
+	Username       string `json:"username,omitempty"`
+	DisplayName    string `json:"display_name,omitempty"`
+	Email          string `json:"email,omitempty"`
+	AffiliateCode  string `json:"affiliate_code,omitempty"`
 }
 
 // providerParams returns map with Provider key for i18n templates
@@ -64,6 +79,19 @@ func GenerateOAuthCode(c *gin.Context) {
 	userID := 0
 	sessionID := ""
 	flowPayload := oauthFlowPayload{AffiliateCode: request.Aff}
+	// Resolve the registration gate code server-side so the plaintext never
+	// reaches the OAuth redirect URL or state. Unknown codes resolve to zero:
+	// existing users log in either way and new users get the completion flow.
+	invitationCode := strings.TrimSpace(request.InvitationCode)
+	if request.Intent == model.AuthFlowIntentLogin && invitationCode != "" {
+		if len(invitationCode) > common.InvitationCodeMaxLength {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		resolved := service.ResolveRegistrationInvitation(invitationCode)
+		flowPayload.InvitationCodeID = resolved.CodeID
+		flowPayload.InvitationInviterID = resolved.InviterID
+	}
 	bindingStarted := false
 	if request.Provider == "telegram" {
 		telegramFlow, err := oauth.NewTelegramOAuthFlow()
@@ -293,7 +321,7 @@ func HandleOAuth(c *gin.Context) {
 
 	switch flow.Intent {
 	case model.AuthFlowIntentLogin:
-		handleOAuthLogin(c, provider, oauthUser, token, flow)
+		handleOAuthLogin(c, providerName, provider, oauthUser, token, flow)
 	case model.AuthFlowIntentVerify:
 		handleOAuthVerification(c, providerName, oauthUser, flow)
 	}
@@ -315,15 +343,20 @@ func handleOAuthVerification(c *gin.Context, provider string, oauthUser *oauth.O
 	common.ApiSuccess(c, proof)
 }
 
-func handleOAuthLogin(c *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, token *oauth.OAuthToken, flow *model.AuthFlow) {
+func handleOAuthLogin(c *gin.Context, providerName string, provider oauth.Provider, oauthUser *oauth.OAuthUser, token *oauth.OAuthToken, flow *model.AuthFlow) {
 	// 7. Find or create user
 	var payload oauthFlowPayload
 	if err := common.UnmarshalJsonStr(flow.Payload, &payload); err != nil {
 		writeSecurityOperationError(c, err)
 		return
 	}
-	user, migration, err := findOrCreateOAuthUser(c, provider, oauthUser, token, payload.AffiliateCode)
+	user, migration, err := findOrCreateOAuthUser(c, providerName, provider, oauthUser, token, payload)
 	if err != nil {
+		var invitationErr *InvitationRequiredError
+		if errors.As(err, &invitationErr) {
+			writeInvitationRequired(c, invitationErr.FlowToken)
+			return
+		}
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
 			return
@@ -405,8 +438,11 @@ func handleOAuthBind(c *gin.Context, providerName string, provider oauth.Provide
 
 // findOrCreateOAuthUser finds the existing user or creates a new one. For a
 // legacy GitHub binding that still waits for the login verification, it also
-// returns the rewrite to carry into the challenge.
-func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, token *oauth.OAuthToken, affiliateCode string) (*model.User, *service.LegacyGitHubMigration, error) {
+// returns the rewrite to carry into the challenge. When a new identity hits
+// the registration gate without a valid code it returns an
+// InvitationRequiredError carrying the pending flow token instead of creating
+// the account.
+func findOrCreateOAuthUser(c *gin.Context, providerName string, provider oauth.Provider, oauthUser *oauth.OAuthUser, token *oauth.OAuthToken, payload oauthFlowPayload) (*model.User, *service.LegacyGitHubMigration, error) {
 	user := &model.User{}
 	if provider.ProviderUserIDColumn() == "telegram_id" {
 		err := provider.FillUserByProviderID(user, oauthUser.ProviderUserID)
@@ -490,6 +526,46 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		return nil, nil, &OAuthRegistrationDisabledError{}
 	}
 
+	// Handle affiliate code
+	inviterId := 0
+	if payload.AffiliateCode != "" {
+		inviterId, _ = model.GetUserIdByAffCode(payload.AffiliateCode)
+	}
+
+	// Registration gate: an OAuth entry only needs a gate code when the
+	// corresponding method is configured. Existing users never reach this
+	// branch.
+	method := oauthInvitationMethod(providerName, provider)
+	invitation := service.RegistrationInvitation{}
+	if common.IsInvitationRequiredForMethod(method) {
+		switch {
+		case payload.InvitationCodeID > 0:
+			invitation.CodeID = payload.InvitationCodeID
+		case payload.InvitationInviterID > 0:
+			invitation.InviterID = payload.InvitationInviterID
+		case common.InvitationAffAllowed && inviterId > 0:
+			// A valid affiliate code passes the gate on its own.
+		default:
+			// Hold the confirmed identity and ask for a gate code before any
+			// account is written.
+			flowToken, err := createInvitationPendingFlow(invitationPendingPayload{
+				Provider:       providerName,
+				ProviderUserId: oauthUser.ProviderUserID,
+				Username:       oauthUser.Username,
+				DisplayName:    oauthUser.DisplayName,
+				Email:          oauthUser.Email,
+				AffiliateCode:  payload.AffiliateCode,
+			})
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, nil, &InvitationRequiredError{FlowToken: flowToken}
+		}
+	}
+	if invitation.InviterID > 0 {
+		inviterId = invitation.InviterID
+	}
+
 	// Set up new user
 	user.Username = provider.GetProviderPrefix() + strconv.Itoa(model.GetMaxUserId()+1)
 
@@ -520,71 +596,64 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	}
 	user.Role = common.RoleCommonUser
 	user.Status = common.UserStatusEnabled
+	user.RegisterMethod = method
+	user.InvitationCodeId = invitation.CodeID
 
-	// Handle affiliate code
-	inviterId := 0
-	if affiliateCode != "" {
-		inviterId, _ = model.GetUserIdByAffCode(affiliateCode)
-	}
-
-	// Use transaction to ensure user creation and OAuth binding are atomic
-	if genericProvider, ok := provider.(*oauth.GenericOAuthProvider); ok {
-		// Custom provider: create user and binding in a transaction
-		err := model.DB.Transaction(func(tx *gorm.DB) error {
-			// Create user
-			if err := user.InsertWithTx(tx, inviterId); err != nil {
-				return err
-			}
-
-			// Create OAuth binding
+	// Use transaction to ensure user creation, gate consumption, and OAuth
+	// binding are atomic.
+	bindOAuthIdentity := func(tx *gorm.DB) error {
+		if genericProvider, ok := provider.(*oauth.GenericOAuthProvider); ok {
 			binding := &model.UserOAuthBinding{
 				UserId:         user.Id,
 				ProviderId:     genericProvider.GetProviderId(),
 				ProviderUserId: oauthUser.ProviderUserID,
 			}
-			if err := model.CreateUserOAuthBindingWithTx(tx, binding); err != nil {
-				return err
-			}
-
-			return nil
-		})
-		if err != nil {
-			return nil, nil, err
+			return model.CreateUserOAuthBindingWithTx(tx, binding)
 		}
-
-		// Perform post-transaction tasks (logs, sidebar config, inviter rewards)
-		user.FinalizeOAuthUserCreation(inviterId)
-	} else {
-		// Built-in provider: create user and update provider ID in a transaction
-		err := model.DB.Transaction(func(tx *gorm.DB) error {
-			// Create user
-			if err := user.InsertWithTx(tx, inviterId); err != nil {
-				return err
-			}
-
-			// Set the provider user ID on the user model and update
-			provider.SetProviderUserID(user, oauthUser.ProviderUserID)
-			if err := tx.Model(user).Updates(map[string]any{
-				"github_id":   user.GitHubId,
-				"discord_id":  user.DiscordId,
-				"oidc_id":     user.OidcId,
-				"linux_do_id": user.LinuxDOId,
-				"wechat_id":   user.WeChatId,
-				"telegram_id": user.TelegramId,
-			}).Error; err != nil {
-				return err
-			}
-
-			return nil
-		})
-		if err != nil {
-			return nil, nil, err
+		provider.SetProviderUserID(user, oauthUser.ProviderUserID)
+		return tx.Model(user).Updates(map[string]any{
+			"github_id":   user.GitHubId,
+			"discord_id":  user.DiscordId,
+			"oidc_id":     user.OidcId,
+			"linux_do_id": user.LinuxDOId,
+			"wechat_id":   user.WeChatId,
+			"telegram_id": user.TelegramId,
+		}).Error
+	}
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := user.InsertWithTx(tx, inviterId); err != nil {
+			return err
 		}
-
-		// Perform post-transaction tasks
-		user.FinalizeOAuthUserCreation(inviterId)
+		if invitation.CodeID > 0 {
+			if _, err := model.ConsumeInvitationCodeReferenceWithTx(tx, invitation.CodeID, user.Id); err != nil {
+				return err
+			}
+		}
+		return bindOAuthIdentity(tx)
+	})
+	if err != nil {
+		// The pre-filled code lost its race (used, disabled, or expired between
+		// state creation and callback). Fall back to the completion flow so the
+		// user can enter another code without repeating the provider round trip.
+		if invitation.CodeID > 0 && (errors.Is(err, model.ErrInvitationCodeUsed) || errors.Is(err, model.ErrInvitationCodeInvalid)) {
+			flowToken, perr := createInvitationPendingFlow(invitationPendingPayload{
+				Provider:       providerName,
+				ProviderUserId: oauthUser.ProviderUserID,
+				Username:       oauthUser.Username,
+				DisplayName:    oauthUser.DisplayName,
+				Email:          oauthUser.Email,
+				AffiliateCode:  payload.AffiliateCode,
+			})
+			if perr != nil {
+				return nil, nil, perr
+			}
+			return nil, nil, &InvitationRequiredError{FlowToken: flowToken}
+		}
+		return nil, nil, err
 	}
 
+	// Perform post-transaction tasks (logs, sidebar config, inviter rewards)
+	user.FinalizeOAuthUserCreation(inviterId)
 	return user, nil, nil
 }
 
@@ -596,6 +665,237 @@ func recordLegacyGitHubBindingAudit(c *gin.Context, user *model.User, success bo
 	model.RecordOperationAuditLog(user.Id, user.Role, auditContentEN("user.binding_bind", params), c.ClientIP(), "user.binding_bind", params, nil, &model.AuditRequestInfo{
 		Method: c.Request.Method, Route: c.FullPath(), Path: c.FullPath(), Status: c.Writer.Status(), Success: success,
 	}, c)
+}
+
+// InvitationRequiredError reports that a confirmed OAuth identity paused at
+// the registration gate; no account was created. FlowToken references the
+// pending identity so the user can complete registration with a gate code.
+type InvitationRequiredError struct {
+	FlowToken string
+}
+
+func (e *InvitationRequiredError) Error() string {
+	return "invitation code required to complete registration"
+}
+
+func writeInvitationRequired(c *gin.Context, flowToken string) {
+	setAuthNoStore(c)
+	c.JSON(http.StatusOK, gin.H{
+		"success": false,
+		"message": i18n.T(c, i18n.MsgInvitationRequired),
+		"data": gin.H{
+			"invitation_required": true,
+			"flow_token":          flowToken,
+		},
+	})
+}
+
+// createInvitationPendingFlow stores a provider-confirmed identity for the
+// invitation completion step. The pending flow is single-use and expires with
+// the same TTL as the OAuth state, and never contains OAuth tokens.
+func createInvitationPendingFlow(pending invitationPendingPayload) (string, error) {
+	payload, err := common.Marshal(pending)
+	if err != nil {
+		return "", err
+	}
+	state, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
+		Purpose:   model.AuthFlowPurposeInvitation,
+		Provider:  pending.Provider,
+		Payload:   string(payload),
+		ExpiresAt: time.Now().Add(oauthAuthFlowTTL),
+	})
+	return state, err
+}
+
+// oauthInvitationMethod maps a provider to the registration method recorded on
+// the user and matched against the invitation gate configuration.
+func oauthInvitationMethod(providerName string, provider oauth.Provider) string {
+	if _, ok := provider.(*oauth.GenericOAuthProvider); ok {
+		return common.RegisterMethodCustomOAuth
+	}
+	switch providerName {
+	case "github":
+		return common.RegisterMethodGitHub
+	case "discord":
+		return common.RegisterMethodDiscord
+	case "oidc":
+		return common.RegisterMethodOIDC
+	case "linuxdo":
+		return common.RegisterMethodLinuxDO
+	default:
+		return ""
+	}
+}
+
+type invitationCompleteRequest struct {
+	FlowToken      string `json:"flow_token"`
+	InvitationCode string `json:"invitation_code"`
+}
+
+// CompleteOAuthInvitation finishes a registration that paused at the
+// invitation gate. The pending provider identity is only written after the
+// submitted gate code is atomically consumed or resolved inside the same
+// transaction that consumes the flow, so an invalid code never creates an
+// account.
+func CompleteOAuthInvitation(c *gin.Context) {
+	var request invitationCompleteRequest
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	request.FlowToken = strings.TrimSpace(request.FlowToken)
+	request.InvitationCode = strings.TrimSpace(request.InvitationCode)
+	if request.FlowToken == "" || request.InvitationCode == "" || len(request.InvitationCode) > common.InvitationCodeMaxLength {
+		common.ApiErrorI18n(c, i18n.MsgInvitationRequired)
+		return
+	}
+	flow, err := model.GetAuthFlow(request.FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeInvitation})
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": i18n.T(c, i18n.MsgOAuthStateInvalid)})
+		return
+	}
+	var pending invitationPendingPayload
+	if err := common.UnmarshalJsonStr(flow.Payload, &pending); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": i18n.T(c, i18n.MsgOAuthStateInvalid)})
+		return
+	}
+
+	var provider oauth.Provider
+	method := ""
+	isWeChat := pending.Provider == "wechat"
+	if isWeChat {
+		method = common.RegisterMethodWeChat
+	} else {
+		provider = oauth.GetProvider(pending.Provider)
+		if provider == nil || !provider.IsEnabled() || provider.ProviderUserIDColumn() == "telegram_id" {
+			common.ApiErrorI18n(c, i18n.MsgInvitationCompleteFailed)
+			return
+		}
+		method = oauthInvitationMethod(pending.Provider, provider)
+	}
+	// The gate may have been turned off or narrowed while the flow was pending.
+	if !common.IsInvitationRequiredForMethod(method) {
+		common.ApiErrorI18n(c, i18n.MsgInvitationCompleteNotAllowed)
+		return
+	}
+
+	// Re-check the identity: it must not have been bound to an account while
+	// the user was entering the code.
+	if isWeChat {
+		if model.IsWeChatIdAlreadyTaken(pending.ProviderUserId) {
+			common.ApiErrorI18n(c, i18n.MsgInvitationCompleteFailed)
+			return
+		}
+	} else if provider.IsUserIDTaken(pending.ProviderUserId) {
+		common.ApiErrorI18n(c, i18n.MsgInvitationCompleteFailed)
+		return
+	}
+
+	invitation := service.ResolveRegistrationInvitation(request.InvitationCode)
+	if invitation.CodeID == 0 && invitation.InviterID == 0 {
+		common.ApiErrorI18n(c, i18n.MsgInvitationInvalid)
+		return
+	}
+	inviterId := invitation.InviterID
+	if inviterId == 0 && pending.AffiliateCode != "" {
+		inviterId, _ = model.GetUserIdByAffCode(pending.AffiliateCode)
+	}
+
+	// Assemble the account from the confirmed identity, mirroring the create
+	// branch of findOrCreateOAuthUser.
+	user := &model.User{}
+	if isWeChat {
+		user.Username = "wechat_" + strconv.Itoa(model.GetMaxUserId()+1)
+		user.DisplayName = "WeChat User"
+		user.WeChatId = pending.ProviderUserId
+	} else {
+		user.Username = provider.GetProviderPrefix() + strconv.Itoa(model.GetMaxUserId()+1)
+		if pending.Username != "" {
+			if exists, err := model.CheckUserExistOrDeleted(pending.Username, ""); err == nil && !exists {
+				// 防止索引退化
+				if len(pending.Username) <= model.UserNameMaxLength {
+					user.Username = pending.Username
+				}
+			}
+		}
+		if pending.DisplayName != "" {
+			user.DisplayName = pending.DisplayName
+		} else if pending.Username != "" {
+			user.DisplayName = pending.Username
+		} else {
+			user.DisplayName = provider.GetName() + " User"
+		}
+	}
+	if pending.Email != "" {
+		user.Email = model.NormalizeEmail(pending.Email)
+		if err := model.EnsureEmailAvailable(user.Email, 0); err != nil {
+			if errors.Is(err, model.ErrEmailAlreadyTaken) {
+				common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+				return
+			}
+			common.ApiError(c, err)
+			return
+		}
+	}
+	user.Role = common.RoleCommonUser
+	user.Status = common.UserStatusEnabled
+	user.RegisterMethod = method
+	user.InvitationCodeId = invitation.CodeID
+
+	bindIdentity := func(tx *gorm.DB) error {
+		if isWeChat {
+			return nil
+		}
+		if genericProvider, ok := provider.(*oauth.GenericOAuthProvider); ok {
+			binding := &model.UserOAuthBinding{
+				UserId:         user.Id,
+				ProviderId:     genericProvider.GetProviderId(),
+				ProviderUserId: pending.ProviderUserId,
+			}
+			return model.CreateUserOAuthBindingWithTx(tx, binding)
+		}
+		provider.SetProviderUserID(user, pending.ProviderUserId)
+		return tx.Model(user).Updates(map[string]any{
+			"github_id":   user.GitHubId,
+			"discord_id":  user.DiscordId,
+			"oidc_id":     user.OidcId,
+			"linux_do_id": user.LinuxDOId,
+			"wechat_id":   user.WeChatId,
+			"telegram_id": user.TelegramId,
+		}).Error
+	}
+	if _, err := model.ConsumeAuthFlowWithAction(request.FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeInvitation}, func(tx *gorm.DB, _ *model.AuthFlow) error {
+		if err := user.InsertWithTx(tx, inviterId); err != nil {
+			return err
+		}
+		if invitation.CodeID > 0 {
+			if _, err := model.ConsumeInvitationCodeReferenceWithTx(tx, invitation.CodeID, user.Id); err != nil {
+				if errors.Is(err, model.ErrInvitationCodeUsed) || errors.Is(err, model.ErrInvitationCodeInvalid) {
+					return service.ErrInvitationRejected
+				}
+				return err
+			}
+		}
+		return bindIdentity(tx)
+	}); err != nil {
+		if errors.Is(err, service.ErrInvitationRejected) {
+			common.ApiErrorI18n(c, i18n.MsgInvitationInvalid)
+			return
+		}
+		if errors.Is(err, model.ErrAuthFlowInvalid) || errors.Is(err, model.ErrAuthFlowExpired) || errors.Is(err, model.ErrAuthFlowConsumed) {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": i18n.T(c, i18n.MsgOAuthStateInvalid)})
+			return
+		}
+		common.ApiError(c, err)
+		return
+	}
+
+	user.FinalizeOAuthUserCreation(inviterId)
+	if user.Status != common.UserStatusEnabled {
+		common.ApiErrorI18n(c, i18n.MsgOAuthUserBanned)
+		return
+	}
+	setupLogin(user, nil, c)
 }
 
 // Error types for OAuth

@@ -283,6 +283,14 @@ export const STATIC_I18N_KEYS = [
 
   // Redemption codes
   'Unused',
+  'Password',
+  'GitHub',
+  'Discord',
+  'OIDC',
+  'LinuxDO',
+  'Custom OAuth',
+  'WeChat',
+  'Admin Created',
   'Disabled',
   'Used',
   'Expired',

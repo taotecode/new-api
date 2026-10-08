@@ -92,6 +92,7 @@ type User struct {
 	WeChatId             string                     `json:"wechat_id" gorm:"column:wechat_id;index"`
 	TelegramId           string                     `json:"telegram_id" gorm:"column:telegram_id;index"`
 	VerificationCode     string                     `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
+	InvitationCode       string                     `json:"invitation_code" gorm:"-:all" validate:"max=128"`        // registration gate code from the request body; never saved to database
 	AccessToken          *string                    `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // Deprecated: 旧版面板访问令牌，仅在升级后的过渡期内使用；删除 users.access_token 列时一并移除。
 	AccessTokenCreatedAt *int64                     `json:"-" gorm:"type:bigint;column:access_token_created_at"`    // Deprecated: 旧版面板访问令牌，仅在升级后的过渡期内使用；删除 users.access_token 列时一并移除。
 	Quota                int                        `json:"quota" gorm:"type:int;default:0"`
@@ -103,6 +104,11 @@ type User struct {
 	AffQuota             int                        `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
 	AffHistoryQuota      int                        `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
 	InviterId            int                        `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
+	RegisterMethod       string                     `json:"register_method" gorm:"type:varchar(32);column:register_method;index"`
+	InvitationCodeId     int                        `json:"invitation_code_id" gorm:"type:int;column:invitation_code_id;index"`
+	InvitationCodePrefix string                     `json:"invitation_code_prefix,omitempty" gorm:"-:all"`
+	InvitationCodeName   string                     `json:"invitation_code_name,omitempty" gorm:"-:all"`
+	InviterUsername      string                     `json:"inviter_username,omitempty" gorm:"-:all"`
 	DeletedAt            gorm.DeletedAt             `gorm:"index"`
 	LinuxDOId            string                     `json:"linux_do_id" gorm:"column:linux_do_id;index"`
 	Setting              string                     `json:"setting" gorm:"type:text;column:setting"`
@@ -259,6 +265,7 @@ func generateDefaultSidebarConfigForRole(userRole int) string {
 			"redemption": true,
 			"user":       true,
 			"setting":    false, // 管理员不能访问系统设置
+			"invitation": false, // 注册门槛码仅超管可见
 		}
 	} else if userRole == common.RoleRootUser {
 		// 超级管理员可以访问所有功能
@@ -269,6 +276,7 @@ func generateDefaultSidebarConfigForRole(userRole int) string {
 			"redemption": true,
 			"user":       true,
 			"setting":    true,
+			"invitation": true,
 		}
 	}
 	// 普通用户不包含admin区域

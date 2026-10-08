@@ -273,31 +273,61 @@ func Register(c *gin.Context) {
 	}
 	affCode := user.AffCode // this code is the inviter's code, not the user's own code
 	inviterId, _ := model.GetUserIdByAffCode(affCode)
+	invitationCode := strings.TrimSpace(user.InvitationCode)
+	invitationRequired := common.IsInvitationRequiredForMethod(common.RegisterMethodPassword)
+	invitation := service.RegistrationInvitation{}
+	if invitationRequired {
+		if invitationCode == "" {
+			common.ApiErrorI18n(c, i18n.MsgInvitationRequired)
+			return
+		}
+		// Fail fast on unknown codes; the atomic consume inside the
+		// transaction remains the authoritative check.
+		invitation = service.ResolveRegistrationInvitation(invitationCode)
+		if invitation.CodeID == 0 && invitation.InviterID == 0 {
+			common.ApiErrorI18n(c, i18n.MsgInvitationInvalid)
+			return
+		}
+		if invitation.InviterID > 0 {
+			inviterId = invitation.InviterID
+		}
+	}
 	cleanUser := model.User{
-		Username:    user.Username,
-		Password:    user.Password,
-		DisplayName: user.Username,
-		InviterId:   inviterId,
-		Role:        common.RoleCommonUser, // 明确设置角色为普通用户
+		Username:         user.Username,
+		Password:         user.Password,
+		DisplayName:      user.Username,
+		InviterId:        inviterId,
+		RegisterMethod:   common.RegisterMethodPassword,
+		InvitationCodeId: invitation.CodeID,
+		Role:             common.RoleCommonUser, // 明确设置角色为普通用户
 	}
 	if common.EmailVerificationEnabled {
 		cleanUser.Email = user.Email
 	}
-	if err := cleanUser.Insert(inviterId); err != nil {
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := cleanUser.InsertWithTx(tx, inviterId); err != nil {
+			return err
+		}
+		if invitation.CodeID > 0 {
+			if _, err := model.ConsumeInvitationCodeReferenceWithTx(tx, invitation.CodeID, cleanUser.Id); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+			return
+		}
+		if errors.Is(err, model.ErrInvitationCodeUsed) || errors.Is(err, model.ErrInvitationCodeInvalid) {
+			common.ApiErrorI18n(c, i18n.MsgInvitationInvalid)
 			return
 		}
 		common.ApiError(c, err)
 		return
 	}
+	cleanUser.FinishInsert(inviterId)
 
-	// 获取插入后的用户ID
-	var insertedUser model.User
-	if err := model.DB.Where("username = ?", cleanUser.Username).First(&insertedUser).Error; err != nil {
-		common.ApiErrorI18n(c, i18n.MsgUserRegisterFailed)
-		return
-	}
 	// 生成默认令牌
 	if constant.GenerateDefaultToken {
 		key, err := common.GenerateKey()
@@ -308,7 +338,7 @@ func Register(c *gin.Context) {
 		}
 		// 生成默认令牌
 		token := model.Token{
-			UserId:             insertedUser.Id, // 使用插入后的用户ID
+			UserId:             cleanUser.Id,
 			Name:               cleanUser.Username + "的初始令牌",
 			Key:                key,
 			CreatedTime:        common.GetTimestamp(),
@@ -342,6 +372,7 @@ func GetAllUsers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	populateUserRegistrationInfo(users)
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
@@ -372,11 +403,51 @@ func SearchUsers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	populateUserRegistrationInfo(users)
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
 	common.ApiSuccess(c, pageInfo)
 	return
+}
+
+// populateUserRegistrationInfo fills the read-only registration detail shown in
+// the admin user views: the batch and prefix of the consumed registration code
+// and the inviter's username. Lookup failures leave the fields empty so the
+// user list keeps working when a related row is missing.
+func populateUserRegistrationInfo(users []*model.User) {
+	codeIDs := make([]int, 0, len(users))
+	inviterIDs := make([]int, 0, len(users))
+	for _, user := range users {
+		if user.InvitationCodeId > 0 {
+			codeIDs = append(codeIDs, user.InvitationCodeId)
+		}
+		if user.InviterId > 0 {
+			inviterIDs = append(inviterIDs, user.InviterId)
+		}
+	}
+	if len(codeIDs) > 0 {
+		if codes, err := model.GetInvitationCodeSummaries(codeIDs); err == nil {
+			for _, user := range users {
+				if code, ok := codes[user.InvitationCodeId]; ok {
+					user.InvitationCodePrefix = code.CodePrefix
+					user.InvitationCodeName = code.Name
+				}
+			}
+		}
+	}
+	if len(inviterIDs) > 0 {
+		var inviters []*model.User
+		if err := model.DB.Select("id", "username").Where("id IN ?", inviterIDs).Find(&inviters).Error; err == nil {
+			usernames := make(map[int]string, len(inviters))
+			for _, inviter := range inviters {
+				usernames[inviter.Id] = inviter.Username
+			}
+			for _, user := range users {
+				user.InviterUsername = usernames[user.InviterId]
+			}
+		}
+	}
 }
 
 func canManageTargetRole(myRole int, targetRole int) bool {
@@ -400,6 +471,7 @@ func GetUser(c *gin.Context) {
 		return
 	}
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
+	populateUserRegistrationInfo([]*model.User{user})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -1028,10 +1100,11 @@ func CreateUser(c *gin.Context) {
 	}
 	// Even for admin users, we cannot fully trust them!
 	cleanUser := model.User{
-		Username:    user.Username,
-		Password:    user.Password,
-		DisplayName: user.DisplayName,
-		Role:        user.Role, // 保持管理员设置的角色
+		Username:       user.Username,
+		Password:       user.Password,
+		DisplayName:    user.DisplayName,
+		Role:           user.Role, // 保持管理员设置的角色
+		RegisterMethod: common.RegisterMethodAdminCreate,
 	}
 	authzTouched := false
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {

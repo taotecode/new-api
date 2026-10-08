@@ -72,7 +72,11 @@ import {
   type AdminPermissionMatrix,
 } from '@/lib/admin-permissions'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
-import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
+import {
+  formatQuota,
+  formatTimestampToDate,
+  parseQuotaFromDollars,
+} from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { accountPasswordSchema } from '@/lib/password-policy'
 import { ROLE } from '@/lib/roles'
@@ -141,21 +145,27 @@ export function UsersMutateDrawer({
     defaultValues: USER_FORM_DEFAULT_VALUES,
   })
 
+  // Fresh user record for the read-only registration info block.
+  const [registrationInfo, setRegistrationInfo] = useState<User | null>(null)
+
   // Load existing data when updating
   useEffect(() => {
     if (open && isUpdate && currentRow) {
+      setRegistrationInfo(currentRow)
       // For update, fetch fresh data
       getUser(currentRow.id)
         .then((result) => {
           if (result.success && result.data) {
             loadedPermissions.current = result.data.admin_permissions
             form.reset(transformUserToFormDefaults(result.data))
+            setRegistrationInfo(result.data)
           } else {
             handleServerError(result, t('Failed to load'))
           }
         })
         .catch((error) => handleServerError(error, t('Failed to load')))
     } else if (open && !isUpdate) {
+      setRegistrationInfo(null)
       // For create, reset to defaults
       form.reset(USER_FORM_DEFAULT_VALUES)
     }
@@ -296,6 +306,9 @@ export function UsersMutateDrawer({
                 : t('Add a new user by providing necessary info.')}
             </SheetDescription>
           </SheetHeader>
+          {isUpdate && registrationInfo && (
+            <UserRegistrationInfo user={registrationInfo} />
+          )}
           <Form {...form}>
             <form
               id='user-form'
@@ -603,5 +616,69 @@ export function UsersMutateDrawer({
         />
       )}
     </>
+  )
+}
+
+// Register method display mapping, shared with the invitation admin page.
+const REGISTER_METHOD_LABEL_KEYS: Record<string, string> = {
+  password: 'Password',
+  github: 'GitHub',
+  discord: 'Discord',
+  oidc: 'OIDC',
+  linuxdo: 'LinuxDO',
+  custom_oauth: 'Custom OAuth',
+  wechat: 'WeChat',
+  admin_create: 'Admin Created',
+}
+
+// UserRegistrationInfo is a read-only block summarizing how the account was
+// created: registration entry, consumed invitation code, and inviter.
+function UserRegistrationInfo({ user }: { user: User }) {
+  const { t } = useTranslation()
+  const methodLabelKey = REGISTER_METHOD_LABEL_KEYS[user.register_method ?? '']
+  const methodText = methodLabelKey ? t(methodLabelKey) : t('Unknown')
+  const usedInvitationCode =
+    user.invitation_code_id && user.invitation_code_id > 0
+  const registerMethodAriaLabel = `${t('Registered via')} ${methodText}`
+
+  return (
+    <section
+      aria-label={registerMethodAriaLabel}
+      className='bg-muted/40 space-y-2 rounded-lg border p-4 text-sm'
+    >
+      <h4 className='text-muted-foreground text-xs font-medium tracking-wide uppercase'>
+        {t('Registration')}
+      </h4>
+      <dl className='grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-1.5'>
+        <dt className='text-muted-foreground'>{t('Registered via')}</dt>
+        <dd className='font-medium'>{methodText}</dd>
+        {usedInvitationCode ? (
+          <>
+            <dt className='text-muted-foreground'>{t('Invitation code')}</dt>
+            <dd className='font-mono'>
+              {user.invitation_code_prefix
+                ? `${user.invitation_code_prefix}••••`
+                : t('Unknown')}
+              {user.invitation_code_name
+                ? ` · ${user.invitation_code_name}`
+                : ''}
+            </dd>
+          </>
+        ) : null}
+        {user.inviter_id && user.inviter_id > 0 ? (
+          <>
+            <dt className='text-muted-foreground'>{t('Inviter')}</dt>
+            <dd className='font-medium'>
+              {user.inviter_username ||
+                t('User {{id}}', { id: user.inviter_id })}
+            </dd>
+          </>
+        ) : null}
+        <dt className='text-muted-foreground'>{t('Registered at')}</dt>
+        <dd className='font-mono'>
+          {formatTimestampToDate(user.created_at ?? 0)}
+        </dd>
+      </dl>
+    </section>
   )
 }

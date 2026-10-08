@@ -232,6 +232,19 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"DELETE /api/redemption/invalid": accessTokenScopeRule("redemption:write"),
 	"DELETE /api/redemption/:id":     accessTokenScopeRule("redemption:write"),
 
+	// router/api-router.go: /api/invitation (root-only registration gate codes)
+	"GET /api/invitation/":        accessTokenScopeRule("invitation:read"),
+	"GET /api/invitation/search":  accessTokenScopeRule("invitation:read"),
+	"GET /api/invitation/:id":     accessTokenScopeRule("invitation:read"),
+	"POST /api/invitation/":       accessTokenScopeRule("invitation:write"),
+	"POST /api/invitation/batch":  accessTokenScopeRule("invitation:write"),
+	"PUT /api/invitation/":        accessTokenScopeRule("invitation:write"),
+	"DELETE /api/invitation/used": accessTokenScopeRule("invitation:write"),
+	"DELETE /api/invitation/:id":  accessTokenScopeRule("invitation:write"),
+
+	// router/api-router.go: anonymous invitation completion
+	"POST /api/oauth/invitation/complete": accessTokenSessionRule,
+
 	// router/api-router.go: /api/audit, /api/log, /api/data
 	"GET /api/audit/self":                       accessTokenScopeRule("usage:read"),
 	"GET /api/log/":                             accessTokenScopeRule("log:read"),

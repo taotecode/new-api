@@ -29,6 +29,10 @@ const defaultAuthSettings: AuthSettings = {
   PasswordRegisterEnabled: true,
   EmailVerificationEnabled: false,
   RegisterEnabled: true,
+  // Invitation gate: default off so upgrades change nothing until enabled.
+  InvitationRequired: false,
+  InvitationAffAllowed: true,
+  InvitationMethods: 'password,github,discord,oidc,linuxdo,custom_oauth,wechat',
   EmailDomainRestrictionEnabled: false,
   EmailAliasRestrictionEnabled: false,
   EmailDomainWhitelist: '',

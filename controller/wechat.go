@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -92,26 +93,66 @@ func WeChatAuth(c *gin.Context) {
 			return
 		}
 	} else {
-		if common.RegisterEnabled {
-			user.Username = "wechat_" + strconv.Itoa(model.GetMaxUserId()+1)
-			user.DisplayName = "WeChat User"
-			user.Role = common.RoleCommonUser
-			user.Status = common.UserStatusEnabled
-
-			if err := user.Insert(0); err != nil {
-				c.JSON(http.StatusOK, gin.H{
-					"success": false,
-					"message": err.Error(),
-				})
-				return
-			}
-		} else {
+		if !common.RegisterEnabled {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "管理员关闭了新用户注册",
 			})
 			return
 		}
+		// Registration gate: hold the confirmed WeChat identity and ask for a
+		// gate code before any account is written.
+		invitationCode := strings.TrimSpace(c.Query("invitation_code"))
+		invitation := service.RegistrationInvitation{}
+		if common.IsInvitationRequiredForMethod(common.RegisterMethodWeChat) {
+			if invitationCode == "" || len(invitationCode) > common.InvitationCodeMaxLength {
+				flowToken, err := createInvitationPendingFlow(invitationPendingPayload{
+					Provider:       common.RegisterMethodWeChat,
+					ProviderUserId: wechatId,
+					DisplayName:    "WeChat User",
+				})
+				if err != nil {
+					c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+					return
+				}
+				writeInvitationRequired(c, flowToken)
+				return
+			}
+			invitation = service.ResolveRegistrationInvitation(invitationCode)
+			if invitation.CodeID == 0 && invitation.InviterID == 0 {
+				common.ApiErrorI18n(c, i18n.MsgInvitationInvalid)
+				return
+			}
+		}
+		user.Username = "wechat_" + strconv.Itoa(model.GetMaxUserId()+1)
+		user.DisplayName = "WeChat User"
+		user.Role = common.RoleCommonUser
+		user.Status = common.UserStatusEnabled
+		user.RegisterMethod = common.RegisterMethodWeChat
+		user.InvitationCodeId = invitation.CodeID
+
+		if err := model.DB.Transaction(func(tx *gorm.DB) error {
+			if err := user.InsertWithTx(tx, 0); err != nil {
+				return err
+			}
+			if invitation.CodeID > 0 {
+				if _, err := model.ConsumeInvitationCodeReferenceWithTx(tx, invitation.CodeID, user.Id); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			if invitation.CodeID > 0 && (errors.Is(err, model.ErrInvitationCodeUsed) || errors.Is(err, model.ErrInvitationCodeInvalid)) {
+				common.ApiErrorI18n(c, i18n.MsgInvitationInvalid)
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+		user.FinishInsert(0)
 	}
 
 	if user.Status != common.UserStatusEnabled {

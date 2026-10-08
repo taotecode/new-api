@@ -21,6 +21,7 @@ import { createSectionRegistry } from '../utils/section-registry'
 import { BasicAuthSection } from './basic-auth-section'
 import { BotProtectionSection } from './bot-protection-section'
 import { CustomOAuthSection } from './custom-oauth/custom-oauth-section'
+import { InvitationSection } from './invitation-section'
 import { OAuthSection } from './oauth-section'
 import { PasskeySection } from './passkey-section'
 
@@ -98,6 +99,19 @@ const AUTH_SECTIONS = [
             | 'discouraged',
           'passkey.attachment_preference':
             settings['passkey.attachment_preference'],
+        }}
+      />
+    ),
+  },
+  {
+    id: 'invitation',
+    titleKey: 'Invitation Code Registration',
+    build: (settings: AuthSettings) => (
+      <InvitationSection
+        defaultValues={{
+          InvitationRequired: settings.InvitationRequired,
+          InvitationAffAllowed: settings.InvitationAffAllowed,
+          InvitationMethods: settings.InvitationMethods,
         }}
       />
     ),

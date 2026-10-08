@@ -82,6 +82,21 @@ const (
 	MsgRedemptionExpireTimeInvalid = "redemption.expire_time_invalid"
 )
 
+// Invitation gate related messages
+const (
+	MsgInvitationRequired           = "invitation.required"
+	MsgInvitationInvalid            = "invitation.invalid"
+	MsgInvitationCodeNameLength     = "invitation.name_length"
+	MsgInvitationCodeCountPositive  = "invitation.count_positive"
+	MsgInvitationCodeCountMax       = "invitation.count_max"
+	MsgInvitationCodeCreateFailed   = "invitation.create_failed"
+	MsgInvitationCodeNotFound       = "invitation.not_found"
+	MsgInvitationCodeStatusInvalid  = "invitation.status_invalid"
+	MsgInvitationCodeExpireInvalid  = "invitation.expire_time_invalid"
+	MsgInvitationCompleteFailed     = "invitation.complete_failed"
+	MsgInvitationCompleteNotAllowed = "invitation.complete_not_allowed"
+)
+
 // User related messages
 const (
 	MsgUserPasswordLoginDisabled     = "user.password_login_disabled"

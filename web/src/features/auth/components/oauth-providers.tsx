@@ -39,6 +39,9 @@ type OAuthProvidersProps = {
   onWeChatLogin?: () => void
   isWeChatLoading?: boolean
   redirectTo?: string
+  // Pre-filled registration gate code from the sign-up form; attached to the
+  // OAuth state so new accounts skip the invitation completion step.
+  invitationCode?: string
 }
 
 type ProviderButton = {
@@ -56,6 +59,7 @@ export function OAuthProviders({
   onWeChatLogin,
   isWeChatLoading = false,
   redirectTo,
+  invitationCode,
 }: OAuthProvidersProps) {
   const { t } = useTranslation()
   const {
@@ -68,7 +72,7 @@ export function OAuthProviders({
     handleLinuxDOLogin,
     handleTelegramLogin,
     handleCustomOAuthLogin,
-  } = useOAuthLogin(status, redirectTo)
+  } = useOAuthLogin(status, redirectTo, { invitationCode })
 
   const providerButtons: ProviderButton[] = []
 
