@@ -355,6 +355,73 @@ func TestCompleteOAuthInvitationCreatesAccountOnlyWithValidCode(t *testing.T) {
 	assert.False(t, result.success)
 }
 
+func TestWeChatGateAffCodeBindsInviter(t *testing.T) {
+	setupInvitationControllerTest(t)
+	enableInvitationGate(common.RegisterMethodWeChat)
+	previousWeChat := common.WeChatAuthEnabled
+	common.WeChatAuthEnabled = true
+	t.Cleanup(func() { common.WeChatAuthEnabled = previousWeChat })
+	inviterId := createAffInviterForTest(t, "wechat-inviter", "WXAFF")
+
+	// Stand in for the WeChat authorization-code service.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":"","data":"wx-openid-aff"}`))
+	}))
+	t.Cleanup(server.Close)
+	previousAddress := common.WeChatServerAddress
+	common.WeChatServerAddress = server.URL
+	t.Cleanup(func() { common.WeChatServerAddress = previousAddress })
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	wechatContext, _ := gin.CreateTestContext(recorder)
+	wechatContext.Request = httptest.NewRequest(http.MethodGet, "/api/oauth/wechat?code=any&invitation_code=WXAFF", nil)
+	WeChatAuth(wechatContext)
+
+	var user model.User
+	require.NoError(t, model.DB.Where("wechat_id = ?", "wx-openid-aff").First(&user).Error)
+	assert.Equal(t, inviterId, user.InviterId, "a referral code that passes the WeChat gate must bind the inviter")
+	assert.Equal(t, common.RegisterMethodWeChat, user.RegisterMethod)
+}
+
+func TestCompleteOAuthInvitationRejectsWhenRegistrationDisabled(t *testing.T) {
+	setupInvitationControllerTest(t)
+	enableInvitationGate(common.RegisterMethodGitHub)
+	codes := createInvitationCodesForTest(t, "disabled-reg-batch", 1)
+	flowToken := createInvitationPendingFlowForTest(t, invitationPendingPayload{
+		Provider: "github", ProviderUserId: "gh-complete-reg-off",
+	})
+
+	common.RegisterEnabled = false
+	result := decodeRegisterResult(t, performInvitationComplete(t, `{"flow_token":"`+flowToken+`","invitation_code":"`+codes[0]+`"}`))
+	assert.False(t, result.success)
+	assert.Equal(t, i18nMessage(t, i18n.MsgUserRegisterDisabled), result.message)
+
+	var count int64
+	require.NoError(t, model.DB.Model(&model.User{}).Where("github_id = ?", "gh-complete-reg-off").Count(&count).Error)
+	assert.Zero(t, count, "no account may be created while registration is disabled")
+}
+
+func TestCompleteOAuthInvitationRejectsWeChatWhenLoginDisabled(t *testing.T) {
+	setupInvitationControllerTest(t)
+	enableInvitationGate(common.RegisterMethodWeChat)
+	previousWeChat := common.WeChatAuthEnabled
+	common.WeChatAuthEnabled = false
+	t.Cleanup(func() { common.WeChatAuthEnabled = previousWeChat })
+	codes := createInvitationCodesForTest(t, "wechat-off-batch", 1)
+	flowToken := createInvitationPendingFlowForTest(t, invitationPendingPayload{
+		Provider: "wechat", ProviderUserId: "wx-openid-off",
+	})
+
+	result := decodeRegisterResult(t, performInvitationComplete(t, `{"flow_token":"`+flowToken+`","invitation_code":"`+codes[0]+`"}`))
+	assert.False(t, result.success)
+
+	var count int64
+	require.NoError(t, model.DB.Model(&model.User{}).Where("wechat_id = ?", "wx-openid-off").Count(&count).Error)
+	assert.Zero(t, count, "no account may be created while WeChat login is disabled")
+}
+
 func TestCompleteOAuthInvitationRejectsWhenGateDisabled(t *testing.T) {
 	setupInvitationControllerTest(t)
 	enableInvitationGate(common.RegisterMethodGitHub)
@@ -372,6 +439,9 @@ func TestCompleteOAuthInvitationRejectsWhenGateDisabled(t *testing.T) {
 func TestCompleteOAuthInvitationBindsWeChatIdentity(t *testing.T) {
 	setupInvitationControllerTest(t)
 	enableInvitationGate(common.RegisterMethodWeChat)
+	previousWeChat := common.WeChatAuthEnabled
+	common.WeChatAuthEnabled = true
+	t.Cleanup(func() { common.WeChatAuthEnabled = previousWeChat })
 	codes := createInvitationCodesForTest(t, "wechat-batch", 1)
 	flowToken := createInvitationPendingFlowForTest(t, invitationPendingPayload{
 		Provider: "wechat", ProviderUserId: "wx-openid-1",
@@ -406,7 +476,7 @@ func performRootInvitationRequest(t *testing.T, method string, path string, body
 		AddInvitationCodes(c)
 	case method == http.MethodGet && path == "/api/invitation/search":
 		SearchInvitationCodes(c)
-	case method == http.MethodPut && path == "/api/invitation/":
+	case method == http.MethodPut && strings.HasPrefix(path, "/api/invitation/"):
 		UpdateInvitationCode(c)
 	case method == http.MethodDelete && strings.HasPrefix(path, "/api/invitation/"):
 		DeleteInvitationCode(c)
@@ -481,8 +551,18 @@ func TestInvitationAdminAPIManagesCodes(t *testing.T) {
 
 	// status_only toggle and single delete.
 	toggleBody := `{"id":` + strconv.Itoa(searchResponse.Data.Items[1].Id) + `,"status":2}`
-	result = decodeRegisterResult(t, performRootInvitationRequest(t, http.MethodPut, "/api/invitation/", toggleBody))
+	result = decodeRegisterResult(t, performRootInvitationRequest(t, http.MethodPut, "/api/invitation/?status_only=true", toggleBody))
 	require.True(t, result.success, result.message)
+	// The toggled code really ends up disabled.
+	recorder = performRootInvitationRequest(t, http.MethodGet, "/api/invitation/search", "")
+	require.NoError(t, common.DecodeJson(recorder.Body, &searchResponse))
+	require.True(t, searchResponse.Success)
+	require.Len(t, searchResponse.Data.Items, 3)
+	for _, listed := range searchResponse.Data.Items {
+		if listed.Id == searchResponse.Data.Items[1].Id {
+			require.Equal(t, 2, listed.Status, "status_only toggle must flip the code status")
+		}
+	}
 
 	result = decodeRegisterResult(t, performRootInvitationRequest(t, http.MethodDelete, "/api/invitation/"+strconv.Itoa(searchResponse.Data.Items[2].Id), ""))
 	require.True(t, result.success, result.message)

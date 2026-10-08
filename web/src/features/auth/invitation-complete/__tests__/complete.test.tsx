@@ -79,6 +79,29 @@ it('keeps the form for retry when the invitation code is invalid', async () => {
   )
 })
 
+it('shows a form error instead of rethrowing when the request fails', async () => {
+  // For example an expired or already consumed flow responds 403 and the
+  // axios call rejects; the failure must surface on the field.
+  completeInvitationRegistrationMock.mockRejectedValue(
+    new Error('Request failed with status code 403')
+  )
+  const user = userEvent.setup()
+
+  renderComplete()
+  await user.type(screen.getByLabelText(/invitation code/i), 'INV-ANY')
+  await user.click(
+    screen.getByRole('button', { name: /complete registration/i })
+  )
+
+  // The original failure reason surfaces on the field; the rejection is not
+  // rethrown.
+  await waitFor(() => {
+    expect(
+      screen.getByText('Request failed with status code 403')
+    ).toBeInTheDocument()
+  })
+})
+
 it('completes the registration and signs the new account in with a valid code', async () => {
   completeInvitationRegistrationMock.mockResolvedValue({
     success: true,

@@ -763,7 +763,17 @@ func CompleteOAuthInvitation(c *gin.Context) {
 	var provider oauth.Provider
 	method := ""
 	isWeChat := pending.Provider == "wechat"
+	// Registration may have been disabled while the flow was pending; a held
+	// identity must not bypass that policy.
+	if !common.RegisterEnabled {
+		common.ApiErrorI18n(c, i18n.MsgUserRegisterDisabled)
+		return
+	}
 	if isWeChat {
+		if !common.WeChatAuthEnabled {
+			common.ApiErrorI18n(c, i18n.MsgOAuthNotEnabled, providerParams("WeChat"))
+			return
+		}
 		method = common.RegisterMethodWeChat
 	} else {
 		provider = oauth.GetProvider(pending.Provider)

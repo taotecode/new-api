@@ -205,6 +205,11 @@ func UpdateInvitationCode(id int, name string, status int, expiredTime int64, st
 			return nil, errors.New("invitation code status changed concurrently")
 		}
 	} else {
+		// A used code can no longer change: its consumption record is part of
+		// the audit trail, including the batch name.
+		if code.Status == common.InvitationCodeStatusUsed {
+			return nil, ErrInvitationCodeUsed
+		}
 		if err := DB.Model(&InvitationCode{}).Where("id = ?", id).Updates(map[string]any{
 			"name":         strings.TrimSpace(name),
 			"expired_time": expiredTime,

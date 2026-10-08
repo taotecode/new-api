@@ -167,14 +167,17 @@ func TestInvitationCodeLifecycleManagement(t *testing.T) {
 	_, err = UpdateInvitationCode(code.Id, "", common.InvitationCodeStatusUsed, 0, true)
 	assert.Error(t, err)
 
-	// A consumed code can no longer change status.
-	require.NoError(t, DB.Model(&InvitationCode{}).Where("id = ?", code.Id).Update("status", common.InvitationCodeStatusUsed).Error)
-	_, err = UpdateInvitationCode(code.Id, "", common.InvitationCodeStatusEnabled, 0, true)
-	assert.ErrorIs(t, err, ErrInvitationCodeUsed)
-
+	// Full updates rename and adjust expiry while the code is not consumed.
 	updated, err = UpdateInvitationCode(code.Id, "renamed-batch", 0, 0, false)
 	require.NoError(t, err)
 	assert.Equal(t, "renamed-batch", updated.Name)
+
+	// A consumed code can no longer change status or be edited at all.
+	require.NoError(t, DB.Model(&InvitationCode{}).Where("id = ?", code.Id).Update("status", common.InvitationCodeStatusUsed).Error)
+	_, err = UpdateInvitationCode(code.Id, "", common.InvitationCodeStatusEnabled, 0, true)
+	assert.ErrorIs(t, err, ErrInvitationCodeUsed)
+	_, err = UpdateInvitationCode(code.Id, "rename-used-batch", 0, 0, false)
+	assert.ErrorIs(t, err, ErrInvitationCodeUsed, "used codes keep their consumption record intact")
 
 	// Delete used codes only removes consumed rows.
 	require.NoError(t, DB.Model(&InvitationCode{}).Where("id = ?", code.Id).Update("status", common.InvitationCodeStatusUsed).Error)

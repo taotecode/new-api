@@ -117,8 +117,13 @@ func UpdateInvitationCode(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	statusOnlyFlag := statusOnly != ""
+	statusOnlyFlag := statusOnly == "true" || statusOnly == "1"
 	if !statusOnlyFlag {
+		request.Name = strings.TrimSpace(request.Name)
+		if utf8.RuneCountInString(request.Name) == 0 || utf8.RuneCountInString(request.Name) > 20 {
+			common.ApiErrorI18n(c, i18n.MsgInvitationCodeNameLength)
+			return
+		}
 		if request.ExpiredTime != 0 && request.ExpiredTime < common.GetTimestamp() {
 			common.ApiErrorI18n(c, i18n.MsgInvitationCodeExpireInvalid)
 			return

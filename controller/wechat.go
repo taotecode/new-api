@@ -130,9 +130,12 @@ func WeChatAuth(c *gin.Context) {
 		user.Status = common.UserStatusEnabled
 		user.RegisterMethod = common.RegisterMethodWeChat
 		user.InvitationCodeId = invitation.CodeID
+		// A referral code that passed the gate also binds the inviter.
+		inviterId := invitation.InviterID
+		user.InviterId = inviterId
 
 		if err := model.DB.Transaction(func(tx *gorm.DB) error {
-			if err := user.InsertWithTx(tx, 0); err != nil {
+			if err := user.InsertWithTx(tx, inviterId); err != nil {
 				return err
 			}
 			if invitation.CodeID > 0 {
@@ -152,7 +155,7 @@ func WeChatAuth(c *gin.Context) {
 			})
 			return
 		}
-		user.FinishInsert(0)
+		user.FinishInsert(inviterId)
 	}
 
 	if user.Status != common.UserStatusEnabled {

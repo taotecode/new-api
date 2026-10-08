@@ -83,11 +83,14 @@ export function InvitationComplete(props: InvitationCompleteProps) {
         })
       }
     } catch (error: unknown) {
-      if (error instanceof AuthOperationError) {
-        form.setError('invitationCode', { message: error.message })
-        return
-      }
-      throw error
+      // Network or rejected requests (for example an expired or already
+      // consumed flow) surface as form errors so the user can restart
+      // instead of hitting an unhandled rejection.
+      const normalized = AuthOperationError.from(
+        error,
+        t('Invitation code is invalid or has been used')
+      )
+      form.setError('invitationCode', { message: normalized.message })
     } finally {
       setIsSubmitting(false)
     }
