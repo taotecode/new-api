@@ -800,6 +800,8 @@ export const STATIC_I18N_KEYS = [
   'New email verification code',
   'Password must contain between 8 and 128 characters.',
   'Password settings have changed. Reload the page and try again.',
+  'Please enter an invitation code',
+  'Please enter your email',
   'Please wait before requesting another verification code.',
   'Resend codes',
   'Resend in {{seconds}}s',

@@ -115,18 +115,39 @@ it('shows the invitation input and marks it required when the password entry is 
   expect(screen.getByText(/invitation code \(required\)/i)).toBeInTheDocument()
 })
 
-it('rejects password registration without an invitation code while gated', async () => {
+it('flags the empty required invitation code inline while gated', async () => {
   renderSignUp(gateOnStatus)
   const user = userEvent.setup()
 
   await fillPasswordFields(user)
   await user.click(screen.getByRole('button', { name: /create account/i }))
 
-  await waitFor(() => {
-    expect(toastErrorMock).toHaveBeenCalledWith(
-      'Please enter an invitation code'
-    )
-  })
+  const invitationInput = screen.getByLabelText(/invitation code/i)
+  expect(invitationInput).toHaveAttribute('aria-invalid', 'true')
+  expect(screen.getByText('Please enter an invitation code')).toBeVisible()
+  expect(toastErrorMock).not.toHaveBeenCalledWith(
+    'Please enter an invitation code'
+  )
+  expect(registerMock).not.toHaveBeenCalled()
+})
+
+it('flags the gated invitation code and required email inline when submitting an empty form', async () => {
+  renderSignUp({ ...gateOnStatus, email_verification: true })
+  const user = userEvent.setup()
+
+  await user.click(screen.getByRole('button', { name: /create account/i }))
+
+  expect(screen.getByLabelText(/invitation code/i)).toHaveAttribute(
+    'aria-invalid',
+    'true'
+  )
+  expect(screen.getByText('Please enter an invitation code')).toBeVisible()
+  expect(screen.getByLabelText(/email \(required for verification\)/i)).toHaveAttribute(
+    'aria-invalid',
+    'true'
+  )
+  expect(screen.getByText('Please enter your email')).toBeVisible()
+  expect(screen.getByText('Please enter your username')).toBeVisible()
   expect(registerMock).not.toHaveBeenCalled()
 })
 

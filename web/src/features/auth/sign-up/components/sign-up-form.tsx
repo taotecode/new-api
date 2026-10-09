@@ -42,7 +42,7 @@ import { Label } from '@/components/ui/label'
 import { register, wechatLoginByCode } from '@/features/auth/api'
 import { LegalConsent } from '@/features/auth/components/legal-consent'
 import { OAuthProviders } from '@/features/auth/components/oauth-providers'
-import { registerFormSchema } from '@/features/auth/constants'
+import { buildRegisterSchema } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
 import { useEmailVerification } from '@/features/auth/hooks/use-email-verification'
 import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
@@ -89,8 +89,26 @@ export function SignUpForm({
     validateTurnstile,
   })
 
-  const form = useForm<z.infer<typeof registerFormSchema>>({
-    resolver: zodResolver(registerFormSchema),
+  const emailVerificationRequired = !!status?.email_verification
+  // Registration gate: show the input whenever the gate is on; the password
+  // entry enforces it server-side, OAuth entries pause after authorization
+  // until a valid code is provided.
+  const invitationMethods = (status?.invitation_methods ?? []) as string[]
+  const showInvitationField = Boolean(status?.invitation_required)
+  const passwordInvitationRequired =
+    showInvitationField && invitationMethods.includes('password')
+
+  const registerSchema = useMemo(
+    () =>
+      buildRegisterSchema({
+        requireInvitationCode: passwordInvitationRequired,
+        requireEmail: emailVerificationRequired,
+      }),
+    [passwordInvitationRequired, emailVerificationRequired]
+  )
+
+  const form = useForm<z.infer<typeof registerSchema>>({
+    resolver: zodResolver(registerSchema),
     defaultValues: {
       username: '',
       email: '',
@@ -103,7 +121,6 @@ export function SignUpForm({
   const navigate = useNavigate({ from: '/sign-up' })
   const emailValue = form.watch('email')
   const invitationCodeValue = form.watch('invitationCode') ?? ''
-  const emailVerificationRequired = !!status?.email_verification
   const hasUserAgreement = Boolean(status?.user_agreement_enabled)
   const hasPrivacyPolicy = Boolean(status?.privacy_policy_enabled)
   const requiresLegalConsent = hasUserAgreement || hasPrivacyPolicy
@@ -113,13 +130,6 @@ export function SignUpForm({
     true
   const hasWeChatLogin = Boolean(status?.wechat_login)
   const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
-  // Registration gate: show the input whenever the gate is on; the password
-  // entry enforces it server-side, OAuth entries pause after authorization
-  // until a valid code is provided.
-  const invitationMethods = (status?.invitation_methods ?? []) as string[]
-  const showInvitationField = Boolean(status?.invitation_required)
-  const passwordInvitationRequired =
-    showInvitationField && invitationMethods.includes('password')
 
   const wechatQrCodeUrl = useMemo(() => {
     return (
@@ -150,26 +160,15 @@ export function SignUpForm({
     }
   }, [])
 
-  async function onSubmit(data: z.infer<typeof registerFormSchema>) {
+  async function onSubmit(data: z.infer<typeof registerSchema>) {
     if (requiresLegalConsent && !agreedToLegal) {
       toast.error(legalConsentErrorMessage)
       return
     }
 
     // Validate email verification if required
-    if (emailVerificationRequired) {
-      if (!data.email) {
-        toast.error(t('Please enter your email'))
-        return
-      }
-      if (!verificationCode) {
-        toast.error(t('Please enter the verification code'))
-        return
-      }
-    }
-
-    if (passwordInvitationRequired && !data.invitationCode?.trim()) {
-      toast.error(t('Please enter an invitation code'))
+    if (emailVerificationRequired && !verificationCode) {
+      toast.error(t('Please enter the verification code'))
       return
     }
 

@@ -29,18 +29,46 @@ export const loginFormSchema = z.object({
   password: z.string().min(1, 'Please enter your password'),
 })
 
-export const registerFormSchema = z
-  .object({
-    username: z.string().min(1, 'Please enter your username'),
-    email: z.string().optional(),
-    password: accountPasswordSchema,
-    confirmPassword: z.string().min(1, 'Please confirm your password'),
-    invitationCode: z.string().optional(),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords don't match.",
-    path: ['confirmPassword'],
-  })
+type RegisterSchemaOptions = {
+  // The invitation gate applies to the password entry.
+  requireInvitationCode?: boolean
+  // The site requires email verification for registration.
+  requireEmail?: boolean
+}
+
+export function buildRegisterSchema(options: RegisterSchemaOptions = {}) {
+  const { requireInvitationCode = false, requireEmail = false } = options
+  return z
+    .object({
+      username: z.string().min(1, 'Please enter your username'),
+      email: z.string().optional(),
+      password: accountPasswordSchema,
+      confirmPassword: z.string().min(1, 'Please confirm your password'),
+      invitationCode: z.string().optional(),
+    })
+    .refine((data) => data.password === data.confirmPassword, {
+      message: "Passwords don't match.",
+      path: ['confirmPassword'],
+    })
+    .superRefine((data, ctx) => {
+      if (requireInvitationCode && !data.invitationCode?.trim()) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['invitationCode'],
+          message: 'Please enter an invitation code',
+        })
+      }
+      if (requireEmail && !data.email?.trim()) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['email'],
+          message: 'Please enter your email',
+        })
+      }
+    })
+}
+
+export const registerFormSchema = buildRegisterSchema()
 
 export const forgotPasswordFormSchema = z.object({
   email: z.string().email({
