@@ -6942,7 +6942,7 @@
     "Invitation codes created": "邀請碼已建立",
     "Name for this invitation code (1-20 characters)": "該邀請碼的名稱（1-20 個字元）",
     "New accounts must present a valid invitation code or a referral code before they are created. Existing users are unaffected.": "新帳號必須提供有效邀請碼或推薦碼才能建立，已有使用者不受影響。",
-    "New accounts need a valid invitation code or a referral code. Existing accounts can sign in without it.": "新帳號需要有效邀請碼或推薦碼；已有帳號可直接登入，無需填寫。",
+    "New accounts need a valid invitation code or a referral code. Existing accounts can sign in without it.": "新帳號需要有有效邀請碼或推薦碼；已有帳號可直接登入，無需填寫。",
     "No Invitation Codes Found": "未找到邀請碼",
     "No invitation codes available. Create your first invitation code to gate new registrations.": "暫無邀請碼。建立第一個邀請碼以控制新使用者註冊。",
     "Open Invitation Codes": "開啟邀請碼管理",

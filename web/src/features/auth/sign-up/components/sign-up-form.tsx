@@ -289,35 +289,6 @@ export function SignUpForm({
         className={cn('grid gap-4', className)}
         {...props}
       >
-        {/* Invitation Code Field */}
-        {showInvitationField && (
-          <FormField
-            control={form.control}
-            name='invitationCode'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>
-                  {t('Invitation code')}
-                  {passwordInvitationRequired ? ` (${t('Required')})` : ''}
-                </FormLabel>
-                <FormControl>
-                  <Input
-                    placeholder={t('Enter invitation code')}
-                    autoComplete='off'
-                    {...field}
-                  />
-                </FormControl>
-                <p className='text-muted-foreground text-xs'>
-                  {t(
-                    'New accounts need a valid invitation code or a referral code. Existing accounts can sign in without it.'
-                  )}
-                </p>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        )}
-
         {/* Username Field */}
         <FormField
           control={form.control}
@@ -415,6 +386,32 @@ export function SignUpForm({
               </Button>
             </div>
           </>
+        )}
+
+        {/* Invitation Code Field */}
+        {showInvitationField && (
+          <FormField
+            control={form.control}
+            name='invitationCode'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Invitation code')}</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder={t('Enter invitation code')}
+                    autoComplete='off'
+                    {...field}
+                  />
+                </FormControl>
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    'New accounts need a valid invitation code or a referral code. Existing accounts can sign in without it.'
+                  )}
+                </p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
         )}
 
         {/* Turnstile */}

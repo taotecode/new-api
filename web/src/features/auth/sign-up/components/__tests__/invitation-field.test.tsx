@@ -107,12 +107,21 @@ it('hides the invitation input while the gate is off', async () => {
   expect(screen.queryByLabelText(/invitation code/i)).not.toBeInTheDocument()
 })
 
-it('shows the invitation input and marks it required when the password entry is gated', async () => {
-  renderSignUp(gateOnStatus)
+it('renders the gated invitation input last with a plain label', async () => {
+  renderSignUp({ ...gateOnStatus, email_verification: true })
 
-  const invitationInput = screen.getByLabelText(/invitation code/i)
-  expect(invitationInput).toBeInTheDocument()
-  expect(screen.getByText(/invitation code \(required\)/i)).toBeInTheDocument()
+  expect(screen.getByLabelText(/^invitation code$/i)).toBeInTheDocument()
+  expect(
+    screen.queryByText(/invitation code \(required\)/i)
+  ).not.toBeInTheDocument()
+
+  const invitationInput = screen.getByLabelText(/^invitation code$/i)
+  const verificationCodeInput =
+    screen.getByPlaceholderText(/verification code/i)
+  expect(
+    verificationCodeInput.compareDocumentPosition(invitationInput) &
+      Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy()
 })
 
 it('flags the empty required invitation code inline while gated', async () => {
@@ -142,10 +151,9 @@ it('flags the gated invitation code and required email inline when submitting an
     'true'
   )
   expect(screen.getByText('Please enter an invitation code')).toBeVisible()
-  expect(screen.getByLabelText(/email \(required for verification\)/i)).toHaveAttribute(
-    'aria-invalid',
-    'true'
-  )
+  expect(
+    screen.getByLabelText(/email \(required for verification\)/i)
+  ).toHaveAttribute('aria-invalid', 'true')
   expect(screen.getByText('Please enter your email')).toBeVisible()
   expect(screen.getByText('Please enter your username')).toBeVisible()
   expect(registerMock).not.toHaveBeenCalled()
