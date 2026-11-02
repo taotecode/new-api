@@ -102,7 +102,7 @@ func TestRecordConsumeLogClientInfoFollowsSystemSwitch(t *testing.T) {
 			RecordConsumeLog(c, 1, RecordConsumeLogParams{
 				ModelName: "gpt-test",
 				TokenName: "test-token",
-				Content:   "test",
+				Content:   []*common.Message{common.NewMessage("test")},
 				// Non-nil so the stored metadata is a parseable JSON object
 				// even when nothing is recorded.
 				Other: NewLogOther(),
@@ -152,7 +152,7 @@ func TestRecordConsumeLogIpColumnStaysUserOptIn(t *testing.T) {
 	RecordConsumeLog(c, 4242, RecordConsumeLogParams{
 		ModelName: "gpt-test",
 		TokenName: "test-token",
-		Content:   "test",
+		Content:   []*common.Message{common.NewMessage("test")},
 	})
 
 	log := fetchLogByRequestId(t, "ci-optin-1")

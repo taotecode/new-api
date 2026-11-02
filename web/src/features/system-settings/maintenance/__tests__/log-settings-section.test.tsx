@@ -28,6 +28,8 @@ const defaults = {
   LogConsumeEnabled: true,
   LogRecordClientInfoEnabled: false,
   LogClientInfoUserVisibleEnabled: false,
+  'log_setting.user_export_enabled': true,
+  'log_setting.max_range_days': 30,
 }
 
 const CONSUME_LABEL = 'Record quota usage'
@@ -69,13 +71,17 @@ describe('LogSettingsSection client info switches', () => {
     mocks.mutateAsync.mockReset()
   })
 
-  it('renders the two client-info switches with the server defaults', () => {
+  it('renders the client-info switches with the server defaults', () => {
     render(<LogSettingsSection defaultValues={defaults} />)
 
-    expect(screen.getAllByRole('switch')).toHaveLength(3)
+    expect(screen.getAllByRole('switch')).toHaveLength(4)
     expect(getSwitch(CONSUME_LABEL)).toHaveAttribute('aria-checked', 'true')
     expect(getSwitch(RECORD_LABEL)).toHaveAttribute('aria-checked', 'false')
     expect(getSwitch(VISIBLE_LABEL)).toHaveAttribute('aria-checked', 'false')
+    expect(getSwitch('Allow users to export logs')).toHaveAttribute(
+      'aria-checked',
+      'true'
+    )
   })
 
   it('keeps unsaved switch edits when the parent re-renders with a new defaultValues object holding the same values', async () => {
@@ -95,6 +101,8 @@ describe('LogSettingsSection client info switches', () => {
           LogConsumeEnabled: true,
           LogRecordClientInfoEnabled: false,
           LogClientInfoUserVisibleEnabled: false,
+          'log_setting.user_export_enabled': true,
+          'log_setting.max_range_days': 30,
         }}
       />
     )
@@ -118,6 +126,8 @@ describe('LogSettingsSection client info switches', () => {
           LogConsumeEnabled: true,
           LogRecordClientInfoEnabled: false,
           LogClientInfoUserVisibleEnabled: true,
+          'log_setting.user_export_enabled': true,
+          'log_setting.max_range_days': 30,
         }}
       />
     )
@@ -202,6 +212,8 @@ describe('LogSettingsSection client info switches', () => {
           LogConsumeEnabled: true,
           LogRecordClientInfoEnabled: true,
           LogClientInfoUserVisibleEnabled: false,
+          'log_setting.user_export_enabled': true,
+          'log_setting.max_range_days': 30,
         }}
       />
     )

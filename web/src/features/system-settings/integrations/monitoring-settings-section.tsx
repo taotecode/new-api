@@ -53,14 +53,7 @@ import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 import { safeNumberFieldProps } from '../utils/numeric-field'
 
-const numericString = z.string().refine((value) => {
-  const trimmed = value.trim()
-  if (!trimmed) return true
-  return !Number.isNaN(Number(trimmed)) && Number(trimmed) >= 0
-}, 'Enter a non-negative number or leave empty')
-
 const monitoringSchema = z.object({
-  QuotaRemindThreshold: numericString,
   perf_metrics_setting: z.object({
     enabled: z.boolean(),
     flush_interval: z.coerce.number().min(1),
@@ -75,7 +68,6 @@ type MonitoringFormInput = z.input<typeof monitoringSchema>
 type MonitoringFormValues = z.output<typeof monitoringSchema>
 
 type FlatMonitoringDefaults = {
-  QuotaRemindThreshold: string
   'perf_metrics_setting.enabled': boolean
   'perf_metrics_setting.flush_interval': number
   'perf_metrics_setting.bucket_time': 'minute' | '5min' | 'hour'
@@ -91,7 +83,6 @@ type MonitoringSettingsSectionProps = {
 const buildFormDefaults = (
   defaults: MonitoringSettingsSectionProps['defaultValues']
 ): MonitoringFormInput => ({
-  QuotaRemindThreshold: defaults.QuotaRemindThreshold ?? '',
   perf_metrics_setting: {
     enabled: defaults['perf_metrics_setting.enabled'],
     flush_interval: defaults['perf_metrics_setting.flush_interval'],
@@ -105,7 +96,6 @@ const buildFormDefaults = (
 const normalizeDefaults = (
   defaults: MonitoringSettingsSectionProps['defaultValues']
 ): FlatMonitoringDefaults => ({
-  QuotaRemindThreshold: (defaults.QuotaRemindThreshold ?? '').trim(),
   'perf_metrics_setting.enabled': defaults['perf_metrics_setting.enabled'],
   'perf_metrics_setting.flush_interval':
     defaults['perf_metrics_setting.flush_interval'],
@@ -120,7 +110,6 @@ const normalizeDefaults = (
 const normalizeFormValues = (
   values: MonitoringFormValues
 ): FlatMonitoringDefaults => ({
-  QuotaRemindThreshold: values.QuotaRemindThreshold.trim(),
   'perf_metrics_setting.enabled': values.perf_metrics_setting.enabled,
   'perf_metrics_setting.flush_interval':
     values.perf_metrics_setting.flush_interval,
@@ -142,7 +131,6 @@ export function MonitoringSettingsSection({
   // object on every render, so depending on the object identity would reset
   // away unsaved edits.
   const {
-    QuotaRemindThreshold: quotaRemindThreshold,
     'perf_metrics_setting.enabled': perfMetricsEnabledDefault,
     'perf_metrics_setting.flush_interval': perfMetricsFlushIntervalDefault,
     'perf_metrics_setting.bucket_time': perfMetricsBucketTimeDefault,
@@ -168,7 +156,6 @@ export function MonitoringSettingsSection({
   // edits made while the query refetch was in flight survive.
   useEffect(() => {
     const next = normalizeDefaults({
-      QuotaRemindThreshold: quotaRemindThreshold,
       'perf_metrics_setting.enabled': perfMetricsEnabledDefault,
       'perf_metrics_setting.flush_interval': perfMetricsFlushIntervalDefault,
       'perf_metrics_setting.bucket_time': perfMetricsBucketTimeDefault,
@@ -182,7 +169,6 @@ export function MonitoringSettingsSection({
     lastSavedRef.current = next
     form.reset(buildFormDefaults(next))
   }, [
-    quotaRemindThreshold,
     perfMetricsEnabledDefault,
     perfMetricsFlushIntervalDefault,
     perfMetricsBucketTimeDefault,
@@ -230,44 +216,18 @@ export function MonitoringSettingsSection({
   }
 
   return (
-    <SettingsSection title={t('Monitoring & Alerts')}>
+    <SettingsSection title={t('Model performance metrics')}>
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             isSaving={updateOption.isPending}
           />
-          <FormField
-            control={form.control}
-            name='QuotaRemindThreshold'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t('Quota reminder (tokens)')}</FormLabel>
-                <FormControl>
-                  <Input
-                    type='number'
-                    min={0}
-                    step={1}
-                    value={field.value}
-                    onChange={(event) => field.onChange(event.target.value)}
-                  />
-                </FormControl>
-                <FormDescription>
-                  {t('Send email alerts when a user falls below this quota')}
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'Collect relay latency and success-rate metrics for the model square.'
             )}
-          />
-
-          <div>
-            <h4 className='font-medium'>{t('Model performance metrics')}</h4>
-            <p className='text-muted-foreground mt-1 text-xs'>
-              {t(
-                'Collect relay latency and success-rate metrics for the model square.'
-              )}
-            </p>
-          </div>
+          </p>
 
           <div className='grid grid-cols-1 gap-4 md:grid-cols-4'>
             <FormField

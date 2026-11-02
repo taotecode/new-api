@@ -37,25 +37,36 @@ export function safeDivide(
  */
 export function calculateDashboardStats(data: QuotaDataItem[]) {
   return data.reduce(
-    (acc, item) => ({
-      totalQuota: acc.totalQuota + (Number(item.quota) || 0),
-      totalCount: acc.totalCount + (Number(item.count) || 0),
-      totalTokens: acc.totalTokens + (Number(item.token_used) || 0),
-      totalPromptTokens:
-        acc.totalPromptTokens + (Number(item.prompt_tokens) || 0),
-      totalCacheTokens: acc.totalCacheTokens + (Number(item.cache_tokens) || 0),
-      totalCacheCreationTokens:
-        acc.totalCacheCreationTokens +
-        (Number(item.cache_creation_tokens) || 0),
-      totalCacheHitCount:
-        acc.totalCacheHitCount + (Number(item.cache_hit_count) || 0),
-    }),
+    (acc, item) => {
+      const cacheRead = item.cache_read_tokens ?? 0
+      const cacheCreation = item.cache_creation_tokens ?? 0
+      return {
+        totalQuota: acc.totalQuota + (Number(item.quota) || 0),
+        totalCount: acc.totalCount + (Number(item.count) || 0),
+        totalTokens: acc.totalTokens + (Number(item.token_used) || 0),
+        // Our cache-rate cards use the fork's prompt/cache counters; the
+        // official dashboard cards read the upstream cache_read columns.
+        totalPromptTokens:
+          acc.totalPromptTokens + (Number(item.prompt_tokens) || 0),
+        totalCacheTokens:
+          acc.totalCacheTokens + (Number(item.cache_tokens) || 0),
+        totalCacheHitCount:
+          acc.totalCacheHitCount + (Number(item.cache_hit_count) || 0),
+        totalCacheReadTokens:
+          acc.totalCacheReadTokens +
+          (Number.isFinite(cacheRead) ? Math.max(0, cacheRead) : 0),
+        totalCacheCreationTokens:
+          acc.totalCacheCreationTokens +
+          (Number.isFinite(cacheCreation) ? Math.max(0, cacheCreation) : 0),
+      }
+    },
     {
       totalQuota: 0,
       totalCount: 0,
       totalTokens: 0,
       totalPromptTokens: 0,
       totalCacheTokens: 0,
+      totalCacheReadTokens: 0,
       totalCacheCreationTokens: 0,
       totalCacheHitCount: 0,
     }

@@ -28,7 +28,7 @@ func TestLogQuotaDataMergesCacheColumns(t *testing.T) {
 		ChannelID:           2,
 		NodeName:            "node-1",
 		PromptTokens:        80,
-		CacheTokens:         60,
+		CacheReadTokens:     60,
 		CacheCreationTokens: 5,
 	}
 	LogQuotaData(base)
@@ -37,7 +37,7 @@ func TestLogQuotaDataMergesCacheColumns(t *testing.T) {
 	second.Quota = 20
 	second.TokenUsed = 50
 	second.PromptTokens = 40
-	second.CacheTokens = 30
+	second.CacheReadTokens = 30
 	second.CacheCreationTokens = 0
 	// 3599 seconds later still lands in the same hourly bucket.
 	second.CreatedAt = createdAt + 3599
@@ -49,7 +49,7 @@ func TestLogQuotaDataMergesCacheColumns(t *testing.T) {
 	miss.Quota = 5
 	miss.TokenUsed = 20
 	miss.PromptTokens = 10
-	miss.CacheTokens = 0
+	miss.CacheReadTokens = 0
 	miss.CacheCreationTokens = 0
 	miss.CreatedAt = createdAt + 1800
 	LogQuotaData(miss)
@@ -68,7 +68,7 @@ func TestLogQuotaDataMergesCacheColumns(t *testing.T) {
 	assert.Equal(t, 170, merged.TokenUsed)
 	assert.Equal(t, 130, merged.PromptTokens)
 	assert.Equal(t, 90, merged.CacheTokens)
-	assert.Equal(t, 5, merged.CacheCreationTokens)
+	assert.Equal(t, int64(5), merged.CacheCreationTokens)
 	assert.Equal(t, 2, merged.CacheHitCount, "only requests that read cached input tokens count as cache hits")
 }
 
@@ -87,7 +87,7 @@ func TestLogQuotaDataSeparatesDistinctHours(t *testing.T) {
 		CreatedAt:           1767225600,
 		TokenUsed:           10,
 		PromptTokens:        10,
-		CacheTokens:         4,
+		CacheReadTokens:     4,
 		CacheCreationTokens: 2,
 	})
 	LogQuotaData(QuotaDataLogParams{
@@ -98,7 +98,7 @@ func TestLogQuotaDataSeparatesDistinctHours(t *testing.T) {
 		CreatedAt:           1767225600 + 3600,
 		TokenUsed:           20,
 		PromptTokens:        20,
-		CacheTokens:         8,
+		CacheReadTokens:     8,
 		CacheCreationTokens: 6,
 	})
 
@@ -106,13 +106,13 @@ func TestLogQuotaDataSeparatesDistinctHours(t *testing.T) {
 	defer CacheQuotaDataLock.Unlock()
 	require.Len(t, CacheQuotaData, 2)
 
-	totalCache, totalCreation := 0, 0
+	totalCache, totalCreation := 0, int64(0)
 	for _, entry := range CacheQuotaData {
 		totalCache += entry.CacheTokens
 		totalCreation += entry.CacheCreationTokens
 	}
 	assert.Equal(t, 12, totalCache)
-	assert.Equal(t, 8, totalCreation)
+	assert.Equal(t, int64(8), totalCreation)
 }
 
 // TestGetQuotaDataGroupByChannelFiltersByUsername verifies the channel
@@ -196,7 +196,7 @@ func TestGetQuotaDataGroupByUserAggregatesCacheColumns(t *testing.T) {
 	assert.Equal(t, 1, alice.Count)
 	assert.Equal(t, 80, alice.PromptTokens)
 	assert.Equal(t, 60, alice.CacheTokens)
-	assert.Equal(t, 5, alice.CacheCreationTokens)
+	assert.Equal(t, int64(5), alice.CacheCreationTokens)
 	assert.Equal(t, 1, alice.CacheHitCount)
 	bob := findRow(allRows, "bob")
 	require.NotNil(t, bob)
@@ -245,7 +245,7 @@ func TestGetQuotaDataGroupByGroupAggregatesByUseGroup(t *testing.T) {
 	assert.Equal(t, 3, vip.Count)
 	assert.Equal(t, 120, vip.PromptTokens)
 	assert.Equal(t, 90, vip.CacheTokens)
-	assert.Equal(t, 9, vip.CacheCreationTokens)
+	assert.Equal(t, int64(9), vip.CacheCreationTokens)
 	assert.Equal(t, 2, vip.CacheHitCount)
 	def := findRow(allRows, "default")
 	require.NotNil(t, def)
@@ -303,7 +303,7 @@ func TestGetQuotaDataCacheTimeseriesByModelAggregatesBuckets(t *testing.T) {
 	assert.Equal(t, 7, rows[1].Count, "same-bucket rows must be summed")
 	assert.Equal(t, 100, rows[1].PromptTokens)
 	assert.Equal(t, 10, rows[1].CacheTokens)
-	assert.Equal(t, 10, rows[1].CacheCreationTokens)
+	assert.Equal(t, int64(10), rows[1].CacheCreationTokens)
 	assert.Equal(t, 2, rows[1].CacheHitCount)
 
 	// A window excluding the second hour drops that hour's bucket entirely.
