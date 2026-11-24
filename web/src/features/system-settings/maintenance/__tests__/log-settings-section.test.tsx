@@ -30,6 +30,7 @@ const defaults = {
   LogClientInfoUserVisibleEnabled: false,
   'log_setting.user_export_enabled': true,
   'log_setting.max_range_days': 30,
+  'system_task_setting.retention_days': 30,
 }
 
 const CONSUME_LABEL = 'Record quota usage'
@@ -103,6 +104,7 @@ describe('LogSettingsSection client info switches', () => {
           LogClientInfoUserVisibleEnabled: false,
           'log_setting.user_export_enabled': true,
           'log_setting.max_range_days': 30,
+          'system_task_setting.retention_days': 30,
         }}
       />
     )
@@ -128,6 +130,7 @@ describe('LogSettingsSection client info switches', () => {
           LogClientInfoUserVisibleEnabled: true,
           'log_setting.user_export_enabled': true,
           'log_setting.max_range_days': 30,
+          'system_task_setting.retention_days': 30,
         }}
       />
     )
@@ -214,6 +217,7 @@ describe('LogSettingsSection client info switches', () => {
           LogClientInfoUserVisibleEnabled: false,
           'log_setting.user_export_enabled': true,
           'log_setting.max_range_days': 30,
+          'system_task_setting.retention_days': 30,
         }}
       />
     )

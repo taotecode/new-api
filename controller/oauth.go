@@ -588,6 +588,7 @@ func findOrCreateOAuthUser(c *gin.Context, providerName string, provider oauth.P
 	user.Status = common.UserStatusEnabled
 	user.RegisterMethod = method
 	user.InvitationCodeId = invitation.CodeID
+	user.InviterId = inviterId
 
 	// Use transaction to ensure user creation, gate consumption, and OAuth
 	// binding are atomic.
